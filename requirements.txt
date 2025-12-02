@@ -1,0 +1,9 @@
+streamlit 
+requests 
+beautifulsoup4
+langchain
+langchain-community 
+chromadb
+sentence-transformers
+sqlalchemy
+pysqlite3-binary
