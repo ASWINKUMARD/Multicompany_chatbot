@@ -1,9 +1,9 @@
 streamlit 
-requests 
-beautifulsoup4
-langchain
+langchain 
 langchain-community 
-chromadb
-sentence-transformers
-sqlalchemy
+chromadb 
+sentence-transformers 
+requests 
+beautifulsoup4 
+sqlalchemy 
 pysqlite3-binary
