@@ -1,8 +1,3 @@
-# ============================================================================
-# READY-MADE CHATBOT GENERATOR - PART 1: BACKEND & CORE SYSTEM (FIXED)
-# ============================================================================
-
-# CRITICAL FIX: Must be FIRST imports before anything else
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -48,8 +43,8 @@ class Company(Base):
     secondary_color = Column(String(20), default="#764ba2")
     
     # Contact information
-    emails = Column(Text, nullable=True)  # JSON array
-    phones = Column(Text, nullable=True)  # JSON array
+    emails = Column(Text, nullable=True)
+    phones = Column(Text, nullable=True)
     address_india = Column(Text, nullable=True)
     address_international = Column(Text, nullable=True)
     
@@ -117,7 +112,7 @@ PRIORITY_PAGES = [
     "", "about", "services", "solutions", "products", "contact", "team",
     "careers", "blog", "case-studies", "portfolio", "industries",
     "technology", "expertise", "what-we-do", "who-we-are", "footer",
-    "about-us", "contact-us", "our-services", "our-team", "home"
+    "about-us", "contact-us", "our-services", "our-team", "home", "index"
 ]
 
 # ============================================================================
@@ -138,11 +133,11 @@ def get_chroma_directory(company_slug: str) -> str:
 
 
 # ============================================================================
-# ENHANCED WEB SCRAPER CLASS (FIXED)
+# ENHANCED WEB SCRAPER CLASS (FIXED ALL ISSUES)
 # ============================================================================
 
 class WebScraper:
-    """Handles web scraping for company websites - ENHANCED VERSION"""
+    """Handles web scraping for company websites - FULLY FIXED VERSION"""
     
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -153,7 +148,7 @@ class WebScraper:
             'address_international': None
         }
         self.scraped_content = {}
-        self.debug_info = []  # Track scraping issues
+        self.debug_info = []
     
     def clean_address(self, text: str) -> str:
         """Clean and format address text"""
@@ -170,11 +165,12 @@ class WebScraper:
             if not email.lower().endswith(('.png', '.jpg', '.gif', '.svg')):
                 self.company_info['emails'].add(email.lower())
         
-        # Extract phone numbers
+        # Extract phone numbers with better patterns
         phone_patterns = [
             r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
             r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
-            r'\d{3}[-.\s]?\d{3}[-.\s]?\d{4}'
+            r'\d{3}[-.\s]?\d{3}[-.\s]?\d{4}',
+            r'\d{10,}',
         ]
         for pattern in phone_patterns:
             phones = re.findall(pattern, text)
@@ -191,20 +187,20 @@ class WebScraper:
             # Indian addresses
             if any(city in low for city in ['india', 'mumbai', 'delhi', 'bangalore', 
                                              'chennai', 'kolkata', 'hyderabad', 'pune',
-                                             'madurai', 'coimbatore']):
-                if not self.company_info['address_india'] and len(line) > 20:
+                                             'madurai', 'coimbatore', 'kerala', 'tamil nadu']):
+                if not self.company_info['address_india'] and len(line) > 15:
                     block = " ".join(lines[max(0, i-1):min(len(lines), i+4)])
                     cleaned = self.clean_address(block)
-                    if 20 < len(cleaned) < 300:
+                    if 15 < len(cleaned) < 400:
                         self.company_info['address_india'] = cleaned
             
             # International addresses
             if any(country in low for country in ['singapore', 'usa', 'uk', 'uae', 
-                                                   'malaysia', 'australia']):
-                if not self.company_info['address_international'] and len(line) > 20:
+                                                   'malaysia', 'australia', 'canada']):
+                if not self.company_info['address_international'] and len(line) > 15:
                     block = " ".join(lines[max(0, i-1):min(len(lines), i+4)])
                     cleaned = self.clean_address(block)
-                    if 20 < len(cleaned) < 300:
+                    if 15 < len(cleaned) < 400:
                         self.company_info['address_international'] = cleaned
     
     def is_valid_url(self, url: str, base_domain: str) -> bool:
@@ -223,7 +219,7 @@ class WebScraper:
                 r'/wp-admin/', r'/wp-includes/', r'/wp-json/', r'/admin/',
                 r'/login', r'/register', r'/signup', r'/signin',
                 r'/cart/', r'/checkout/', r'/feed/', r'/rss/', r'/api/',
-                r'/download/', r'\.xml$', r'\.json$'
+                r'/download/', r'\.xml$', r'\.json$', r'#', r'\?.*page=\d+'
             ]
             
             for pattern in skip_patterns:
@@ -235,7 +231,7 @@ class WebScraper:
             return False
     
     def extract_content(self, soup: BeautifulSoup, url: str) -> Dict:
-        """Extract meaningful content from a webpage - ENHANCED"""
+        """Extract meaningful content from a webpage - AGGRESSIVE EXTRACTION"""
         content_dict = {
             'url': url,
             'title': '',
@@ -254,59 +250,80 @@ class WebScraper:
             if meta_desc and meta_desc.get("content"):
                 content_dict['metadata']['description'] = meta_desc["content"]
             
-            # Extract contact info first
+            # Extract contact info BEFORE removing elements
             full_text = soup.get_text(separator="\n", strip=True)
             self.extract_contact_info(soup, full_text)
             
             # Remove unwanted elements
-            for tag in soup(['script', 'style', 'nav', 'aside', 'iframe', 
-                           'noscript', 'form', 'header', 'footer', 'button']):
+            for tag in soup(['script', 'style', 'iframe', 'noscript']):
                 tag.decompose()
             
-            # Try multiple content extraction strategies
+            # AGGRESSIVE MULTI-STRATEGY CONTENT EXTRACTION
             content_parts = []
             
-            # Strategy 1: Look for main content areas
+            # Strategy 1: Main content containers
             main_selectors = [
-                "main", "article", "[role='main']", ".content",
-                ".main-content", "#content", "#main", ".post-content",
-                ".entry-content", ".page-content", "#primary"
+                "main", "article", "[role='main']", ".content", ".main-content",
+                "#content", "#main", ".post-content", ".entry-content",
+                ".page-content", "#primary", ".site-content", ".container"
             ]
             
             for selector in main_selectors:
-                elements = soup.select(selector)
-                for elem in elements:
-                    text = elem.get_text(separator="\n", strip=True)
-                    if len(text) > 100:
-                        content_parts.append(text)
+                try:
+                    elements = soup.select(selector)
+                    for elem in elements:
+                        text = elem.get_text(separator="\n", strip=True)
+                        if len(text) > 50:
+                            content_parts.append(text)
+                except:
+                    pass
             
-            # Strategy 2: If no main content, get all paragraphs and headings
-            if not content_parts:
-                for tag in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'li', 'div']):
-                    text = tag.get_text(strip=True)
-                    if len(text) > 30:  # Lowered threshold
-                        content_parts.append(text)
+            # Strategy 2: All meaningful tags
+            if len(content_parts) < 2:
+                for tag in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'li', 'td', 'span', 'div']):
+                    try:
+                        text = tag.get_text(strip=True)
+                        if len(text) > 20 and not text.isdigit():
+                            content_parts.append(text)
+                    except:
+                        pass
             
-            # Strategy 3: Fallback to body content
-            if not content_parts:
+            # Strategy 3: Body fallback
+            if len(content_parts) < 2:
                 body = soup.find('body')
                 if body:
                     text = body.get_text(separator="\n", strip=True)
+                    if len(text) > 50:
+                        content_parts.append(text)
+            
+            # Strategy 4: Entire page as last resort
+            if not content_parts:
+                text = soup.get_text(separator="\n", strip=True)
+                if len(text) > 30:
                     content_parts.append(text)
             
             # Combine and clean content
             if content_parts:
                 combined = "\n\n".join(content_parts)
                 lines = [line.strip() for line in combined.split("\n") if line.strip()]
+                
                 # Remove duplicates while preserving order
                 seen = set()
                 unique_lines = []
                 for line in lines:
-                    if len(line) > 15 and line not in seen:  # Lowered from 20
-                        seen.add(line)
+                    line_lower = line.lower()
+                    if len(line) > 10 and line_lower not in seen:
+                        seen.add(line_lower)
                         unique_lines.append(line)
                 
                 content_dict['main_content'] = "\n".join(unique_lines)
+            
+            # Add metadata if content is too short
+            if len(content_dict['main_content']) < 100:
+                if content_dict['title']:
+                    content_dict['main_content'] = f"{content_dict['title']}\n\n{content_dict['main_content']}"
+                if content_dict['metadata'].get('description'):
+                    content_dict['main_content'] += f"\n\n{content_dict['metadata']['description']}"
             
         except Exception as e:
             self.debug_info.append(f"Content extraction error for {url}: {str(e)}")
@@ -316,7 +333,7 @@ class WebScraper:
     def scrape_website(self, base_url: str, max_pages: int = 40, 
                       progress_callback=None) -> Tuple[str, Dict]:
         """
-        Scrape website and return formatted content - ENHANCED VERSION
+        Scrape website and return formatted content - FULLY FIXED VERSION
         """
         visited = set()
         all_content = []
@@ -327,29 +344,36 @@ class WebScraper:
         if not base_url.endswith('/'):
             base_url = base_url + '/'
         
-        # Add priority pages
+        # Add priority pages with variations
         for page in PRIORITY_PAGES:
-            full_url = urljoin(base_url, page)
-            queue.append(full_url)
+            variations = [
+                urljoin(base_url, page),
+                urljoin(base_url, page + '/'),
+                urljoin(base_url, page + '.html'),
+                urljoin(base_url, page + '.php'),
+            ]
+            for var in variations:
+                queue.append(var)
         
         # Add base URL variations
         queue.append(base_url)
         queue.append(base_url.rstrip('/'))
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1"
         }
         
         consecutive_failures = 0
-        max_consecutive_failures = 5
+        max_consecutive_failures = 8
         
         while queue and len(visited) < max_pages:
             if consecutive_failures >= max_consecutive_failures:
-                self.debug_info.append(f"Stopped: {consecutive_failures} consecutive failures")
+                self.debug_info.append(f"Stopped after {consecutive_failures} consecutive failures")
                 break
             
             url = queue.popleft()
@@ -361,13 +385,14 @@ class WebScraper:
                 continue
             
             try:
-                response = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+                response = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
                 
                 if response.status_code != 200:
                     consecutive_failures += 1
+                    self.debug_info.append(f"HTTP {response.status_code}: {url}")
                     continue
                 
-                consecutive_failures = 0  # Reset on success
+                consecutive_failures = 0
                 visited.add(url)
                 
                 if progress_callback:
@@ -376,8 +401,8 @@ class WebScraper:
                 soup = BeautifulSoup(response.text, "html.parser")
                 content_data = self.extract_content(soup, url)
                 
-                # Lower threshold for content acceptance
-                if len(content_data['main_content']) > 50:  # Lowered from 100
+                # LOWERED threshold - accept ANY content
+                if len(content_data['main_content']) > 30:
                     formatted = f"PAGE URL: {content_data['url']}\n"
                     formatted += f"PAGE TITLE: {content_data['title']}\n"
                     
@@ -389,32 +414,39 @@ class WebScraper:
                     
                     self.scraped_content[url] = content_data
                 else:
-                    self.debug_info.append(f"Skipped {url}: insufficient content ({len(content_data['main_content'])} chars)")
+                    self.debug_info.append(f"Minimal content {url}: {len(content_data['main_content'])} chars")
                 
                 # Find new links
                 for link in soup.find_all("a", href=True):
-                    next_url = urljoin(url, link['href'])
-                    next_url = next_url.split("#")[0].split("?")[0]
-                    
-                    if next_url not in visited and self.is_valid_url(next_url, base_domain):
-                        queue.append(next_url)
+                    try:
+                        next_url = urljoin(url, link['href'])
+                        next_url = next_url.split("#")[0].split("?")[0]
+                        
+                        if next_url not in visited and self.is_valid_url(next_url, base_domain):
+                            queue.append(next_url)
+                    except:
+                        pass
                 
-                # Be respectful - add small delay
-                time.sleep(0.5)
+                # Respectful delay
+                time.sleep(0.3)
             
             except requests.exceptions.Timeout:
                 self.debug_info.append(f"Timeout: {url}")
                 consecutive_failures += 1
             except requests.exceptions.RequestException as e:
-                self.debug_info.append(f"Request error for {url}: {str(e)}")
+                self.debug_info.append(f"Request error {url}: {str(e)}")
                 consecutive_failures += 1
             except Exception as e:
-                self.debug_info.append(f"Unexpected error for {url}: {str(e)}")
+                self.debug_info.append(f"Unexpected error {url}: {str(e)}")
                 consecutive_failures += 1
         
         # Build final content
         if not all_content:
-            error_msg = f"No content scraped. Visited {len(visited)} pages. Debug: {'; '.join(self.debug_info[:5])}"
+            error_msg = f"❌ SCRAPING FAILED\n"
+            error_msg += f"Visited {len(visited)} pages\n"
+            error_msg += f"Base domain: {base_domain}\n"
+            error_msg += f"Debug info:\n" + "\n".join(self.debug_info[:10])
+            
             return error_msg, {
                 'emails': [],
                 'phones': [],
@@ -436,13 +468,13 @@ class WebScraper:
         
         if self.company_info['emails']:
             header += "CONTACT EMAILS:\n"
-            for email in sorted(self.company_info['emails']):
+            for email in sorted(self.company_info['emails'])[:10]:
                 header += f"  - {email}\n"
             header += "\n"
         
         if self.company_info['phones']:
             header += "CONTACT PHONES:\n"
-            for phone in sorted(self.company_info['phones']):
+            for phone in sorted(self.company_info['phones'])[:10]:
                 header += f"  - {phone}\n"
             header += "\n"
         
@@ -457,23 +489,14 @@ class WebScraper:
             'address_international': self.company_info['address_international'],
             'pages_scraped': len(visited)
         }
-# ============================================================================
-# READY-MADE CHATBOT GENERATOR - PART 2: AI ENGINE + STREAMLIT UI
-# ============================================================================
-# Place this code after Part 1 in the same file
-# ============================================================================
 
 import streamlit as st
 import time
 from sentence_transformers import SentenceTransformer
 import shutil
 
-# ============================================================================
-# AI CHATBOT ENGINE
-# ============================================================================
-
 class CompanyAI:
-    """AI Engine for a specific company's chatbot"""
+    """AI Engine for a specific company's chatbot - FULLY FIXED"""
     
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -493,22 +516,34 @@ class CompanyAI:
                 progress_callback
             )
             
-            if len(content) < 500:
-                self.status["error"] = "Insufficient content scraped"
+            # FIXED: More lenient content check
+            if len(content) < 200:
+                self.status["error"] = f"Insufficient content scraped. Only {len(content)} characters. Debug: {'; '.join(scraper.debug_info[:3])}"
+                return False
+            
+            # Check for error message
+            if content.startswith("❌ SCRAPING FAILED"):
+                self.status["error"] = content
                 return False
             
             self.company_data = company_info
             
             # Step 2: Split content into chunks
             splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1200,
-                chunk_overlap=200,
-                separators=["\n\n", "\n", ". ", " "]
+                chunk_size=1000,
+                chunk_overlap=150,
+                separators=["\n\n", "\n", ". ", " ", ""]
             )
             chunks = splitter.split_text(content)
             
-            if not chunks:
-                self.status["error"] = "No text chunks created"
+            if not chunks or len(chunks) == 0:
+                self.status["error"] = "No text chunks created from content"
+                return False
+            
+            # FIXED: Ensure we have meaningful chunks
+            meaningful_chunks = [c for c in chunks if len(c.strip()) > 50]
+            if len(meaningful_chunks) < 3:
+                self.status["error"] = f"Insufficient meaningful chunks: {len(meaningful_chunks)}"
                 return False
             
             # Step 3: Create embeddings
@@ -546,8 +581,10 @@ class CompanyAI:
             if os.path.exists(chroma_dir):
                 shutil.rmtree(chroma_dir)
             
+            os.makedirs(chroma_dir, exist_ok=True)
+            
             vectorstore = Chroma.from_texts(
-                texts=chunks,
+                texts=meaningful_chunks,
                 embedding=embeddings,
                 persist_directory=chroma_dir
             )
@@ -558,11 +595,11 @@ class CompanyAI:
             return True
         
         except Exception as e:
-            self.status["error"] = str(e)
+            self.status["error"] = f"Initialization error: {str(e)}"
             return False
     
     def load_existing(self):
-        """Load existing vector store for company"""
+        """Load existing vector store for company - FIXED TYPO"""
         try:
             chroma_dir = get_chroma_directory(self.company_slug)
             
@@ -580,7 +617,7 @@ class CompanyAI:
                         return []
                     embeddings = self.model.encode(
                         texts,
-                        normalize_embedings=True,
+                        normalize_embeddings=True,  # FIXED: Was normalize_embedings
                         show_progress_bar=False,
                         convert_to_numpy=True
                     )
@@ -589,7 +626,7 @@ class CompanyAI:
                 def embed_query(self, text):
                     embedding = self.model.encode(
                         [text],
-                        normalize_embeddings=True,
+                        normalize_embeddings=True,  # FIXED: Consistent spelling
                         show_progress_bar=False,
                         convert_to_numpy=True
                     )
@@ -608,7 +645,7 @@ class CompanyAI:
             return True
         
         except Exception as e:
-            self.status["error"] = str(e)
+            self.status["error"] = f"Load error: {str(e)}"
             return False
     
     def get_contact_info(self):
@@ -647,10 +684,10 @@ class CompanyAI:
             msg += f"🌍 **International Office:**\n{info['address_international']}\n\n"
         
         if info.get('emails'):
-            msg += "📧 **Emails:**\n" + "\n".join([f"• {e}" for e in info['emails']]) + "\n\n"
+            msg += "📧 **Emails:**\n" + "\n".join([f"• {e}" for e in info['emails'][:5]]) + "\n\n"
         
         if info.get('phones'):
-            msg += "☎️ **Phones:**\n" + "\n".join([f"• {p}" for p in info['phones']]) + "\n"
+            msg += "☎️ **Phones:**\n" + "\n".join([f"• {p}" for p in info['phones'][:5]]) + "\n"
         
         return msg.strip()
     
@@ -662,13 +699,13 @@ class CompanyAI:
         q_lower = question.lower().strip()
         
         # Handle greetings
-        greetings = ["hi", "hello", "hey", "hai", "hii", "helloo", "hi there", "hello there"]
+        greetings = ["hi", "hello", "hey", "hai", "hii", "helloo", "hi there", "hello there", "good morning", "good afternoon"]
         if q_lower in greetings:
-            return "Hello! I'm here to help you learn more about our company. What would you like to know?"
+            return "Hello! 👋 I'm here to help you learn more about our company. What would you like to know?"
         
         # Handle contact requests
         contact_keywords = ["email", "contact", "phone", "address", "office", 
-                          "location", "reach", "call", "write"]
+                          "location", "reach", "call", "write", "where are you"]
         if any(keyword in q_lower for keyword in contact_keywords):
             return self.get_contact_info()
         
@@ -681,9 +718,9 @@ class CompanyAI:
             docs = self.retriever.invoke(question)
             
             if not docs:
-                return "I couldn't find relevant information. Could you rephrase your question?"
+                return "I couldn't find relevant information about that. Could you rephrase your question or ask something else about our company?"
             
-            context = "\n\n".join([doc.page_content for doc in docs])[:4000]
+            context = "\n\n".join([doc.page_content for doc in docs])[:4500]
             
             # Create prompt
             prompt = f"""You are a helpful AI assistant for this company. Answer the question using ONLY the context provided below. Be concise, professional, and helpful.
@@ -694,10 +731,11 @@ Context:
 Question: {question}
 
 Instructions:
-- Answer in 2-4 sentences
-- Be specific and accurate
-- If the context doesn't contain the answer, say so politely
+- Answer in 2-4 sentences maximum
+- Be specific and accurate based on the context
+- If the context doesn't contain the answer, say "I don't have information about that in our company data"
 - Don't make up information
+- Be friendly and professional
 
 Answer:"""
             
@@ -712,7 +750,7 @@ Answer:"""
             payload = {
                 "model": MODEL,
                 "messages": [
-                    {"role": "system", "content": "You are a helpful company assistant. Answer questions accurately using only the provided context."},
+                    {"role": "system", "content": "You are a helpful company assistant. Answer questions accurately using only the provided context. Be concise and friendly."},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.3,
@@ -758,11 +796,6 @@ Answer:"""
             print(f"Error saving chat: {e}")
         finally:
             db.close()
-
-
-# ============================================================================
-# DATABASE HELPER FUNCTIONS
-# ============================================================================
 
 def create_company(company_name: str, website_url: str, max_pages: int = 40) -> Optional[str]:
     """Create a new company in database"""
@@ -830,10 +863,6 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
     finally:
         db.close()
 
-
-# ============================================================================
-# STREAMLIT UI
-# ============================================================================
 
 # Page config
 st.set_page_config(
@@ -943,10 +972,6 @@ with st.sidebar:
             st.rerun()
 
 
-# ============================================================================
-# PAGE: HOME
-# ============================================================================
-
 if st.session_state.page == "home":
     st.markdown("""
     <div class="header-container">
@@ -985,11 +1010,6 @@ if st.session_state.page == "home":
             st.session_state.page = "list"
             st.rerun()
 
-
-# ============================================================================
-# PAGE: CREATE NEW CHATBOT
-# ============================================================================
-
 elif st.session_state.page == "create":
     st.markdown("""
     <div class="header-container">
@@ -1023,6 +1043,10 @@ elif st.session_state.page == "create":
             if not company_name or not website_url:
                 st.error("❌ Please fill in all required fields")
             else:
+                # Validate URL
+                if not website_url.startswith(('http://', 'https://')):
+                    website_url = 'https://' + website_url
+                
                 # Create company
                 slug = create_company(company_name, website_url, max_pages)
                 
@@ -1061,11 +1085,7 @@ elif st.session_state.page == "create":
                         else:
                             update_company_after_scraping(slug, {}, "failed")
                             st.error(f"❌ Initialization failed: {ai.status.get('error')}")
-
-
-# ============================================================================
-# PAGE: LIST ALL CHATBOTS
-# ============================================================================
+                            st.warning("💡 Try increasing the number of pages to scrape, or check if the website URL is correct.")
 
 elif st.session_state.page == "list":
     st.markdown("""
@@ -1118,10 +1138,6 @@ elif st.session_state.page == "list":
                 
                 st.markdown('</div>', unsafe_allow_html=True)
 
-
-# ============================================================================
-# PAGE: CHAT INTERFACE
-# ============================================================================
 
 elif st.session_state.page == "chat":
     if not st.session_state.current_company:
