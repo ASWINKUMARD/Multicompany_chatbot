@@ -422,7 +422,7 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
         db.close()
 """
 MULTI-COMPANY AI CHATBOT - PART 2: AI ENGINE + UI
-Optimized for Render deployment (<512MB)
+Fixed duplicate element IDs
 """
 
 import streamlit as st
@@ -475,6 +475,10 @@ from main import (
     SessionLocal, OPENROUTER_API_KEY, OPENROUTER_API_BASE, MODEL
 )
 
+
+# ============================================================================
+# AI ENGINE WITH RAG
+# ============================================================================
 
 class CompanyAI:
     """AI Engine with RAG for answering questions"""
@@ -818,6 +822,10 @@ ANSWER (2-5 sentences):"""
             db.close()
 
 
+# ============================================================================
+# STREAMLIT UI - FIXED WITH UNIQUE KEYS
+# ============================================================================
+
 st.set_page_config(
     page_title="AI Chatbot Generator",
     page_icon="🤖",
@@ -859,19 +867,19 @@ if "chat_history" not in st.session_state:
 if "session_id" not in st.session_state:
     st.session_state.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
 
-# Sidebar
+# Sidebar - FIXED: Added unique keys
 with st.sidebar:
     st.markdown("### 🧭 Navigation")
     
-    if st.button("🏠 Home", use_container_width=True):
+    if st.button("🏠 Home", use_container_width=True, key="nav_home"):
         st.session_state.page = "home"
         st.rerun()
     
-    if st.button("➕ Create New", use_container_width=True):
+    if st.button("➕ Create New", use_container_width=True, key="nav_create"):
         st.session_state.page = "create"
         st.rerun()
     
-    if st.button("📋 View All", use_container_width=True):
+    if st.button("📋 View All", use_container_width=True, key="nav_list"):
         st.session_state.page = "list"
         st.rerun()
 
@@ -887,12 +895,12 @@ if st.session_state.page == "home":
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("➕ Create New Chatbot", use_container_width=True, type="primary"):
+        if st.button("➕ Create New Chatbot", use_container_width=True, type="primary", key="home_create"):
             st.session_state.page = "create"
             st.rerun()
     
     with col2:
-        if st.button("📋 View All Chatbots", use_container_width=True):
+        if st.button("📋 View All Chatbots", use_container_width=True, key="home_list"):
             st.session_state.page = "list"
             st.rerun()
     
@@ -905,10 +913,10 @@ elif st.session_state.page == "create":
     </div>
     """, unsafe_allow_html=True)
     
-    with st.form("create_form"):
-        name = st.text_input("Company Name *", placeholder="e.g., Acme Corporation")
-        url = st.text_input("Website URL *", placeholder="e.g., https://example.com")
-        pages = st.slider("Max Pages to Scrape", 10, 60, 40, 10)
+    with st.form("create_form", clear_on_submit=False):
+        name = st.text_input("Company Name *", placeholder="e.g., Acme Corporation", key="form_name")
+        url = st.text_input("Website URL *", placeholder="e.g., https://example.com", key="form_url")
+        pages = st.slider("Max Pages to Scrape", 10, 60, 40, 10, key="form_pages")
         
         submitted = st.form_submit_button("🚀 Create Chatbot", type="primary", use_container_width=True)
         
@@ -922,12 +930,12 @@ elif st.session_state.page == "create":
                 if slug:
                     st.success(f"✅ Created: {name}")
                     
-                    prog = st.progress(0)
+                    prog = st.progress(0, text="Initializing...")
                     status = st.empty()
                     
                     def progress_cb(current, total, url_text):
-                        prog.progress(min(current/total, 1.0))
-                        status.text(f"📄 Scraped {current}/{total} pages")
+                        prog.progress(min(current/total, 1.0), text=f"📄 Scraped {current}/{total} pages")
+                        status.caption(f"Current: {url_text[:50]}...")
                     
                     ai = CompanyAI(slug)
                     if ai.initialize(url, pages, progress_cb):
@@ -944,6 +952,103 @@ elif st.session_state.page == "create":
                         st.rerun()
                     else:
                         st.error(f"❌ Failed: {ai.status.get('error', 'Unknown error')}")
+                        update_company_after_scraping(slug, {}, "failed")
+                else:
+                    st.error("⚠️ Company already exists!")
+            else:
+                st.warning("⚠️ Please fill in all fields")
+
+elif st.session_state.page == "list":
+    st.markdown("""
+    <div class="header-container">
+        <h1 class="header-title">📋 All Chatbots</h1>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    companies = get_all_companies()
+    
+    if not companies:
+        st.info("No chatbots yet. Create your first one!")
+    else:
+        for c in companies:
+            st.markdown('<div class="company-card">', unsafe_allow_html=True)
+            col1, col2, col3 = st.columns([3, 1, 1])
+            
+            with col1:
+                st.markdown(f"### {c.company_name}")
+                st.caption(f"🌐 {c.website_url}")
+                st.caption(f"📄 {c.pages_scraped} pages | Status: {c.scraping_status}")
+            
+            with col2:
+                if c.scraping_status == "completed":
+                    st.success("✅ Ready")
+                elif c.scraping_status == "failed":
+                    st.error("❌ Failed")
+                else:
+                    st.warning("⏳ Pending")
+            
+            with col3:
+                if c.scraping_status == "completed":
+                    # FIXED: Added unique key using company ID
+                    if st.button("💬 Chat", key=f"chat_btn_{c.id}", use_container_width=True):
+                        st.session_state.current_company = c.company_slug
+                        st.session_state.page = "chat"
+                        st.session_state.ai_instance = None
+                        st.session_state.messages = []
+                        st.session_state.chat_history = []
+                        st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+
+elif st.session_state.page == "chat":
+    if not st.session_state.current_company:
+        st.error("No company selected")
+        st.stop()
+    
+    c = get_company_by_slug(st.session_state.current_company)
+    
+    if not c:
+        st.error("Company not found")
+        st.stop()
+    
+    if not st.session_state.ai_instance:
+        with st.spinner("Loading chatbot..."):
+            ai = CompanyAI(st.session_state.current_company)
+            if not ai.load_existing():
+                st.error(f"Failed to load: {ai.status.get('error', 'Unknown error')}")
+                st.stop()
+            st.session_state.ai_instance = ai
+    
+    st.markdown(f"""
+    <div class="header-container">
+        <h1 class="header-title">💬 {c.company_name}</h1>
+        <p style="color: white;">Ask me anything about the company!</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Display chat messages
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    
+    # Chat input - FIXED: Added unique key
+    if prompt := st.chat_input("Ask a question...", key="chat_input_main"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                answer = st.session_state.ai_instance.ask(
+                    prompt,
+                    st.session_state.chat_history,
+                    st.session_state.session_id
+                )
+            st.markdown(answer)
+        
+        st.session_state.messages.append({"role": "assistant", "content": answer})
+        st.session_state.chat_history.append({"question": prompt, "answer": answer})
                         update_company_after_scraping(slug, {}, "failed")
                 else:
                     st.error("⚠️ Company already exists!")
