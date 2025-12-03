@@ -688,25 +688,34 @@ ANSWER (2-5 sentences):"""
             return self.get_contact_info()
         
         try:
+            print(f"\n=== Processing question: {question} ===")
+            
+            # Retrieve relevant documents
+            print("Retrieving relevant documents...")
             relevant_docs = self.retriever.get_relevant_documents(question)
+            print(f"Found {len(relevant_docs)} relevant documents")
             
             if not relevant_docs or len(relevant_docs) == 0:
                 return "I couldn't find specific information about that. Could you rephrase your question?"
             
+            # Build context
             context_parts = []
-            for doc in relevant_docs[:5]:
+            for i, doc in enumerate(relevant_docs[:5]):
                 if hasattr(doc, 'page_content') and doc.page_content:
                     source = doc.metadata.get('source', 'unknown')
                     title = doc.metadata.get('title', '')
                     
-                    context_part = f"[From: {title if title else source}]\n{doc.page_content}"
+                    context_part = f"[From: {title if title else source}]\n{doc.page_content[:500]}"
                     context_parts.append(context_part)
+                    print(f"Doc {i+1}: {len(doc.page_content)} chars from {source}")
             
             if not context_parts:
                 return "I found documents but couldn't extract content. Please try again."
             
             context = "\n\n---\n\n".join(context_parts)
+            print(f"Total context length: {len(context)} chars")
             
+            # Format chat history
             history_text = ""
             if chat_history:
                 history_text = "\n".join([
@@ -714,33 +723,51 @@ ANSWER (2-5 sentences):"""
                     for msg in chat_history[-3:]
                 ])
             
+            # Get company name
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
             
+            # Build prompt
             prompt = self.qa_prompt.format(
                 company_name=company_name,
-                context=context[:5000],
+                context=context[:4000],  # Limit context size
                 chat_history=history_text,
                 question=question
             )
             
+            print(f"Prompt length: {len(prompt)} chars")
+            print("Calling LLM...")
+            
+            # Call LLM
             answer = self._call_llm(prompt)
             
-            if answer:
+            print(f"Answer received: {answer[:100] if answer else 'None'}...")
+            
+            if answer and not answer.startswith("⚠️"):
                 self.save_chat(question, answer, session_id)
                 return answer
+            elif answer:
+                return answer  # Return error message
             else:
                 return "I'm having trouble generating a response. Please try again."
         
         except Exception as e:
-            print(f"Error in ask(): {e}")
-            return "An error occurred. Please try again."
+            print(f"ERROR in ask(): {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return f"An error occurred: {str(e)[:100]}. Please try again."
     
-    def _call_llm(self, prompt: str, max_retries: int = 2) -> str:
+    def _call_llm(self, prompt: str, max_retries: int = 3) -> str:
         """Call LLM API"""
+        if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "":
+            print("ERROR: OPENROUTER_API_KEY not set!")
+            return "⚠️ API key not configured. Please set OPENROUTER_API_KEY environment variable."
+        
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:8501",
+            "X-Title": "AI Chatbot"
         }
         
         payload = {
@@ -761,34 +788,67 @@ ANSWER (2-5 sentences):"""
         
         for attempt in range(max_retries):
             try:
+                print(f"Attempt {attempt + 1}/{max_retries} - Calling LLM...")
+                
                 response = requests.post(
                     OPENROUTER_API_BASE,
                     headers=headers,
                     json=payload,
-                    timeout=45
+                    timeout=60
                 )
+                
+                print(f"Response status: {response.status_code}")
                 
                 if response.status_code == 200:
                     result = response.json()
+                    print(f"Response received: {str(result)[:200]}...")
                     
                     if "choices" in result and len(result["choices"]) > 0:
                         answer = result["choices"][0]["message"]["content"].strip()
                         
-                        if answer and len(answer) > 20:
+                        if answer and len(answer) > 10:
                             return answer
+                        else:
+                            print(f"Answer too short: {answer}")
+                    else:
+                        print(f"No choices in response: {result}")
                 
                 elif response.status_code == 429:
+                    print("Rate limited, waiting...")
+                    if attempt < max_retries - 1:
+                        time.sleep(3)
+                        continue
+                    else:
+                        return "⚠️ API rate limit reached. Please wait a moment and try again."
+                
+                elif response.status_code == 401:
+                    print("Authentication failed!")
+                    return "⚠️ Invalid API key. Please check your OPENROUTER_API_KEY."
+                
+                else:
+                    error_text = response.text[:300]
+                    print(f"Error response: {error_text}")
                     if attempt < max_retries - 1:
                         time.sleep(2)
                         continue
             
-            except Exception as e:
-                print(f"LLM error: {e}")
+            except requests.exceptions.Timeout:
+                print(f"Request timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
-                    time.sleep(1)
+                    time.sleep(2)
+                    continue
+                else:
+                    return "⚠️ Request timed out. Please try again."
+            
+            except Exception as e:
+                print(f"LLM error on attempt {attempt + 1}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                if attempt < max_retries - 1:
+                    time.sleep(2)
                     continue
         
-        return None
+        return "⚠️ Failed to get response from AI. Please try again."
     
     def save_chat(self, question: str, answer: str, session_id: str = None):
         """Save chat to database"""
