@@ -419,6 +419,7 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
         return db.query(Company).filter(Company.company_slug == slug).first()
     finally:
         db.close()
+
 """
 MULTI-COMPANY AI CHATBOT - PART 2: AI ENGINE + UI
 Fixed duplicate element IDs
@@ -1032,102 +1033,6 @@ elif st.session_state.page == "chat":
     
     # Chat input - FIXED: Added unique key
     if prompt := st.chat_input("Ask a question...", key="chat_input_main"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                answer = st.session_state.ai_instance.ask(
-                    prompt,
-                    st.session_state.chat_history,
-                    st.session_state.session_id
-                )
-            st.markdown(answer)
-        
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-        st.session_state.chat_history.append({"question": prompt, "answer": answer})
-        update_company_after_scraping(slug, {}, "failed")
-               else:
-                    st.error("⚠️ Company already exists!")
-            else:
-                st.warning("⚠️ Please fill in all fields")
-
-elif st.session_state.page == "list":
-    st.markdown("""
-    <div class="header-container">
-        <h1 class="header-title">📋 All Chatbots</h1>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    companies = get_all_companies()
-    
-    if not companies:
-        st.info("No chatbots yet. Create your first one!")
-    else:
-        for c in companies:
-            st.markdown('<div class="company-card">', unsafe_allow_html=True)
-            col1, col2, col3 = st.columns([3, 1, 1])
-            
-            with col1:
-                st.markdown(f"### {c.company_name}")
-                st.caption(f"🌐 {c.website_url}")
-                st.caption(f"📄 {c.pages_scraped} pages | Status: {c.scraping_status}")
-            
-            with col2:
-                if c.scraping_status == "completed":
-                    st.success("✅ Ready")
-                elif c.scraping_status == "failed":
-                    st.error("❌ Failed")
-                else:
-                    st.warning("⏳ Pending")
-            
-            with col3:
-                if c.scraping_status == "completed":
-                    if st.button("💬 Chat", key=f"chat_{c.id}", use_container_width=True):
-                        st.session_state.current_company = c.company_slug
-                        st.session_state.page = "chat"
-                        st.session_state.ai_instance = None
-                        st.session_state.messages = []
-                        st.session_state.chat_history = []
-                        st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
-elif st.session_state.page == "chat":
-    if not st.session_state.current_company:
-        st.error("No company selected")
-        st.stop()
-    
-    c = get_company_by_slug(st.session_state.current_company)
-    
-    if not c:
-        st.error("Company not found")
-        st.stop()
-    
-    if not st.session_state.ai_instance:
-        with st.spinner("Loading chatbot..."):
-            ai = CompanyAI(st.session_state.current_company)
-            if not ai.load_existing():
-                st.error(f"Failed to load: {ai.status.get('error', 'Unknown error')}")
-                st.stop()
-            st.session_state.ai_instance = ai
-    
-    st.markdown(f"""
-    <div class="header-container">
-        <h1 class="header-title">💬 {c.company_name}</h1>
-        <p style="color: white;">Ask me anything about the company!</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Display chat messages
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-    
-    # Chat input
-    if prompt := st.chat_input("Ask a question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         with st.chat_message("user"):
