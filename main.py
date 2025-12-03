@@ -1,5 +1,4 @@
-
-__import__('pysqlite3')
+ __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
@@ -272,7 +271,7 @@ class WebScraper:
         
         return content_dict
     
-    def scrape_website(self, base_url: str, max_pages: int = 40, 
+def scrape_website(self, base_url: str, max_pages: int = 40, 
                       progress_callback=None) -> Tuple[List[Document], Dict]:
         """Scrape website and return Documents"""
         visited = set()
