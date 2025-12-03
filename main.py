@@ -1,3 +1,8 @@
+"""
+MULTI-COMPANY AI CHATBOT - PART 1: BACKEND
+Fixed RAG implementation with proper LangChain integration
+"""
+
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -5,8 +10,6 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
 from collections import deque
 from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean
@@ -15,8 +18,19 @@ import re
 import os
 import hashlib
 import json
-from typing import Optional, Dict, List, Tuple
 import time
+from typing import Optional, Dict, List, Tuple
+
+# LangChain imports - PROPER SETUP
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from langchain_community.llms import OpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains.question_answering import load_qa_chain
+from langchain.schema import Document
 
 # ============================================================================
 # DATABASE CONFIGURATION
@@ -31,16 +45,13 @@ Base = declarative_base()
 # ============================================================================
 
 class Company(Base):
-    """Stores information about each company that has a chatbot"""
+    """Stores information about each company"""
     __tablename__ = "companies"
     
     id = Column(Integer, primary_key=True, index=True)
     company_name = Column(String(255), unique=True, nullable=False, index=True)
     company_slug = Column(String(255), unique=True, nullable=False, index=True)
     website_url = Column(String(500), nullable=False)
-    logo_url = Column(String(500), nullable=True)
-    primary_color = Column(String(20), default="#667eea")
-    secondary_color = Column(String(20), default="#764ba2")
     
     # Contact information
     emails = Column(Text, nullable=True)
@@ -53,7 +64,7 @@ class Company(Base):
     last_scraped = Column(DateTime, nullable=True)
     scraping_status = Column(String(50), default="pending")
     
-    # Chatbot configuration
+    # Configuration
     is_active = Column(Boolean, default=True)
     max_pages_to_scrape = Column(Integer, default=40)
     
@@ -62,7 +73,7 @@ class Company(Base):
 
 
 class ChatHistory(Base):
-    """Stores chat conversations for each company"""
+    """Stores chat conversations"""
     __tablename__ = "chat_history"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -74,7 +85,7 @@ class ChatHistory(Base):
 
 
 class UserContact(Base):
-    """Stores user contact information collected via chatbot"""
+    """Stores user contact information"""
     __tablename__ = "user_contacts"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -87,7 +98,7 @@ class UserContact(Base):
 
 
 class ScrapedContent(Base):
-    """Stores raw scraped content for each company"""
+    """Stores raw scraped content"""
     __tablename__ = "scraped_content"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -98,7 +109,7 @@ class ScrapedContent(Base):
     scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
-# Create all tables
+# Create tables
 Base.metadata.create_all(bind=engine)
 
 # ============================================================================
@@ -110,9 +121,7 @@ MODEL = "google/gemini-2.0-flash-exp:free"
 
 PRIORITY_PAGES = [
     "", "about", "services", "solutions", "products", "contact", "team",
-    "careers", "blog", "case-studies", "portfolio", "industries",
-    "technology", "expertise", "what-we-do", "who-we-are", "footer",
-    "about-us", "contact-us", "our-services", "our-team", "home", "index"
+    "careers", "about-us", "contact-us", "our-services", "home"
 ]
 
 # ============================================================================
@@ -123,21 +132,20 @@ def create_slug(company_name: str) -> str:
     """Convert company name to URL-friendly slug"""
     slug = company_name.lower()
     slug = re.sub(r'[^a-z0-9]+', '-', slug)
-    slug = slug.strip('-')
-    return slug
+    return slug.strip('-')
 
 
 def get_chroma_directory(company_slug: str) -> str:
-    """Get the ChromaDB directory path for a specific company"""
+    """Get ChromaDB directory path"""
     return f"./chroma_db/{company_slug}"
 
 
 # ============================================================================
-# ULTRA-AGGRESSIVE WEB SCRAPER (ALL ISSUES FIXED)
+# ENHANCED WEB SCRAPER
 # ============================================================================
 
 class WebScraper:
-    """Handles web scraping - MAXIMUM content extraction"""
+    """Advanced web scraper with better content extraction"""
     
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -147,30 +155,28 @@ class WebScraper:
             'address_india': None,
             'address_international': None
         }
-        self.scraped_content = {}
+        self.scraped_pages = []
         self.debug_info = []
-        self.total_content_length = 0
     
     def clean_text(self, text: str) -> str:
-        """Aggressively clean and normalize text"""
+        """Clean and normalize text"""
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'[^\w\s.,!?;:()\-\'\"]+', '', text)
         return text.strip()
     
     def extract_contact_info(self, soup: BeautifulSoup, text: str):
-        """Extract ALL contact information"""
-        # Extract emails
+        """Extract contact information"""
+        # Emails
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
         emails = re.findall(email_pattern, text)
         for email in emails:
-            if not email.lower().endswith(('.png', '.jpg', '.gif', '.svg', '.css', '.js')):
+            if not email.lower().endswith(('.png', '.jpg', '.gif')):
                 self.company_info['emails'].add(email.lower())
         
-        # Extract phones
+        # Phones
         phone_patterns = [
             r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
             r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
-            r'\d{10,15}',
         ]
         for pattern in phone_patterns:
             phones = re.findall(pattern, text)
@@ -179,28 +185,24 @@ class WebScraper:
                 if 7 <= len(cleaned) <= 15:
                     self.company_info['phones'].add(phone.strip())
         
-        # Extract addresses
+        # Addresses
         lines = text.split('\n')
         for i, line in enumerate(lines):
             low = line.lower()
             
-            # Indian addresses
             india_keywords = ['india', 'mumbai', 'delhi', 'bangalore', 'chennai', 
-                            'kolkata', 'hyderabad', 'pune', 'madurai', 'coimbatore',
-                            'kerala', 'tamil nadu', 'maharashtra', 'karnataka']
+                            'madurai', 'tamil nadu', 'maharashtra']
             if any(city in low for city in india_keywords):
                 if not self.company_info['address_india']:
-                    block = " ".join(lines[max(0, i-2):min(len(lines), i+5)])
+                    block = " ".join(lines[max(0, i-2):min(len(lines), i+4)])
                     cleaned = self.clean_text(block)
                     if 20 < len(cleaned) < 500:
                         self.company_info['address_india'] = cleaned
             
-            # International addresses
-            intl_keywords = ['singapore', 'usa', 'uk', 'uae', 'dubai', 'malaysia', 
-                           'australia', 'canada', 'london', 'new york']
+            intl_keywords = ['singapore', 'usa', 'uk', 'uae', 'dubai', 'malaysia']
             if any(country in low for country in intl_keywords):
                 if not self.company_info['address_international']:
-                    block = " ".join(lines[max(0, i-2):min(len(lines), i+5)])
+                    block = " ".join(lines[max(0, i-2):min(len(lines), i+4)])
                     cleaned = self.clean_text(block)
                     if 20 < len(cleaned) < 500:
                         self.company_info['address_international'] = cleaned
@@ -209,17 +211,11 @@ class WebScraper:
         """Check if URL should be scraped"""
         try:
             parsed = urlparse(url)
-            
             if parsed.netloc != base_domain:
                 return False
             
-            skip_extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', 
-                             '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-                             '.mp4', '.mp3', '.avi', '.mov', '.css', '.js', '.ico']
-            
-            skip_paths = ['/wp-admin/', '/wp-includes/', '/wp-json/', '/admin/',
-                         '/login', '/register', '/cart/', '/checkout/', '/feed/',
-                         '/api/', '/download/']
+            skip_extensions = ['.pdf', '.jpg', '.png', '.zip', '.mp4', '.css', '.js']
+            skip_paths = ['/wp-admin/', '/admin/', '/login', '/cart/']
             
             url_lower = url.lower()
             
@@ -238,152 +234,109 @@ class WebScraper:
         except:
             return False
     
-    def extract_content_ultra_aggressive(self, soup: BeautifulSoup, url: str) -> Dict:
-        """MAXIMUM content extraction - NEVER fails"""
+    def extract_content(self, soup: BeautifulSoup, url: str) -> Dict:
+        """Extract meaningful content from page"""
         content_dict = {
             'url': url,
             'title': '',
-            'main_content': '',
-            'raw_text': ''
+            'content': ''
         }
         
         try:
-            # 1. Extract title
+            # Title
             if soup.find('title'):
                 content_dict['title'] = soup.find('title').get_text(strip=True)
             
-            # 2. Extract meta
+            # Meta description
             meta_desc = soup.find('meta', attrs={"name": "description"})
             if meta_desc and meta_desc.get("content"):
-                content_dict['main_content'] += meta_desc["content"] + "\n\n"
+                content_dict['content'] += meta_desc["content"] + "\n\n"
             
-            # 3. Extract contact info FIRST
+            # Extract contact info
             full_text = soup.get_text(separator="\n", strip=True)
             self.extract_contact_info(soup, full_text)
             
-            # 4. Remove unwanted tags
-            for tag in soup(['script', 'style', 'iframe', 'noscript', 'svg', 
-                           'nav', 'header', 'footer']):
+            # Remove unwanted elements
+            for tag in soup(['script', 'style', 'iframe', 'nav', 'footer', 'header']):
                 tag.decompose()
             
-            # 5. STRATEGY 1: Target main content areas
+            # Extract main content
             main_selectors = [
                 "main", "article", "[role='main']", ".content", ".main-content",
-                "#content", "#main", ".post-content", ".entry-content",
-                ".page-content", "#primary", ".site-content", ".main",
-                ".container", ".wrapper", "section", ".section"
+                "#content", "section", ".section"
             ]
             
-            collected_texts = []
+            texts = []
             
+            # Try main content areas first
             for selector in main_selectors:
                 elements = soup.select(selector)
                 for elem in elements:
                     text = elem.get_text(separator="\n", strip=True)
                     if len(text) > 100:
-                        collected_texts.append(text)
+                        texts.append(text)
             
-            # 6. STRATEGY 2: Extract ALL meaningful tags
-            for tag_name in ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 
-                            'td', 'span', 'div', 'a', 'strong', 'em']:
+            # Extract from semantic tags
+            for tag_name in ['h1', 'h2', 'h3', 'p', 'li']:
                 for tag in soup.find_all(tag_name):
                     text = tag.get_text(strip=True)
-                    if len(text) > 15 and not text.isdigit():
-                        collected_texts.append(text)
+                    if len(text) > 20:
+                        texts.append(text)
             
-            # 7. STRATEGY 3: Body fallback
-            if len(collected_texts) < 5:
+            # Fallback to body
+            if len(texts) < 5:
                 body = soup.find('body')
                 if body:
                     text = body.get_text(separator="\n", strip=True)
                     if text:
-                        collected_texts.append(text)
+                        texts.append(text)
             
-            # 8. STRATEGY 4: Entire page
-            if not collected_texts:
-                text = soup.get_text(separator="\n", strip=True)
-                if text:
-                    collected_texts.append(text)
-            
-            # 9. Clean and deduplicate
-            if collected_texts:
-                combined = "\n".join(collected_texts)
-                
-                lines = []
-                for line in combined.split("\n"):
-                    cleaned = self.clean_text(line)
-                    if len(cleaned) > 10:
-                        lines.append(cleaned)
+            # Clean and deduplicate
+            if texts:
+                combined = "\n".join(texts)
+                lines = [self.clean_text(line) for line in combined.split("\n") if len(line.strip()) > 15]
                 
                 seen = set()
                 unique_lines = []
                 for line in lines:
                     line_lower = line.lower()
-                    if line_lower not in seen:
+                    if line_lower not in seen and len(line) > 20:
                         seen.add(line_lower)
                         unique_lines.append(line)
                 
-                content_dict['main_content'] = "\n".join(unique_lines)
-                content_dict['raw_text'] = combined[:5000]
-            
-            # 10. Add title if content is short
-            if len(content_dict['main_content']) < 200 and content_dict['title']:
-                content_dict['main_content'] = f"{content_dict['title']}\n\n{content_dict['main_content']}"
-            
+                content_dict['content'] = "\n".join(unique_lines)
+        
         except Exception as e:
             self.debug_info.append(f"Extraction error {url}: {str(e)}")
-            try:
-                content_dict['main_content'] = soup.get_text(separator="\n", strip=True)[:3000]
-            except:
-                pass
         
         return content_dict
     
     def scrape_website(self, base_url: str, max_pages: int = 40, 
-                      progress_callback=None) -> Tuple[str, Dict]:
-        """Scrape website - GUARANTEED to extract content"""
+                      progress_callback=None) -> Tuple[List[Document], Dict]:
+        """Scrape website and return LangChain Documents"""
         visited = set()
-        all_content = []
         queue = deque()
         base_domain = urlparse(base_url).netloc
         
         base_url = base_url.rstrip('/') + '/'
         
-        # Add priority pages with ALL variations
+        # Add priority pages
         for page in PRIORITY_PAGES:
-            urls_to_try = [
-                urljoin(base_url, page),
-                urljoin(base_url, page + '/'),
-                urljoin(base_url, page + '.html'),
-                urljoin(base_url, page + '.htm'),
-                urljoin(base_url, page + '.php'),
-                urljoin(base_url, page + '.asp'),
-            ]
-            for url in urls_to_try:
+            for url in [urljoin(base_url, page), urljoin(base_url, page + '/')]:
                 if url not in queue:
                     queue.append(url)
         
         queue.append(base_url)
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Cache-Control": "max-age=0"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
         
-        consecutive_failures = 0
-        max_consecutive_failures = 10
+        documents = []
         successful_scrapes = 0
         
         while queue and len(visited) < max_pages:
-            if consecutive_failures >= max_consecutive_failures and successful_scrapes == 0:
-                self.debug_info.append(f"❌ Stopped: {consecutive_failures} failures, 0 successes")
-                break
-            
             url = queue.popleft()
             url = url.split("#")[0].split("?")[0].rstrip('/')
             
@@ -391,38 +344,32 @@ class WebScraper:
                 continue
             
             try:
-                response = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+                response = requests.get(url, headers=headers, timeout=20)
                 
                 if response.status_code != 200:
-                    consecutive_failures += 1
-                    self.debug_info.append(f"HTTP {response.status_code}: {url}")
                     continue
                 
-                consecutive_failures = 0
-                successful_scrapes += 1
                 visited.add(url)
+                successful_scrapes += 1
                 
                 if progress_callback:
                     progress_callback(len(visited), max_pages, url)
                 
                 soup = BeautifulSoup(response.text, "html.parser")
-                content_data = self.extract_content_ultra_aggressive(soup, url)
+                content_data = self.extract_content(soup, url)
                 
-                content_length = len(content_data['main_content'])
-                if content_length > 20:
-                    formatted = f"\n{'='*80}\n"
-                    formatted += f"PAGE: {content_data['url']}\n"
-                    formatted += f"TITLE: {content_data['title']}\n"
-                    formatted += f"{'='*80}\n\n"
-                    formatted += content_data['main_content']
-                    
-                    all_content.append(formatted)
-                    self.scraped_content[url] = content_data
-                    self.total_content_length += content_length
-                    
-                    self.debug_info.append(f"✓ Scraped {url}: {content_length} chars")
-                else:
-                    self.debug_info.append(f"⚠ Skipped {url}: only {content_length} chars")
+                if len(content_data['content']) > 50:
+                    # Create LangChain Document
+                    doc = Document(
+                        page_content=content_data['content'],
+                        metadata={
+                            'source': url,
+                            'title': content_data['title'],
+                            'company': self.company_slug
+                        }
+                    )
+                    documents.append(doc)
+                    self.debug_info.append(f"✓ Scraped: {url} ({len(content_data['content'])} chars)")
                 
                 # Find new links
                 for link in soup.find_all("a", href=True):
@@ -436,487 +383,22 @@ class WebScraper:
                     except:
                         pass
                 
-                time.sleep(0.4)
+                time.sleep(0.3)
             
-            except requests.exceptions.Timeout:
-                self.debug_info.append(f"⏱ Timeout: {url}")
-                consecutive_failures += 1
-            except requests.exceptions.RequestException as e:
-                self.debug_info.append(f"🔌 Connection error {url}: {str(e)[:50]}")
-                consecutive_failures += 1
             except Exception as e:
-                self.debug_info.append(f"💥 Error {url}: {str(e)[:50]}")
-                consecutive_failures += 1
+                self.debug_info.append(f"Error {url}: {str(e)[:50]}")
+                continue
         
-        # Build result
-        if not all_content or self.total_content_length < 500:
-            error_msg = f"❌ INSUFFICIENT CONTENT SCRAPED\n\n"
-            error_msg += f"Statistics:\n"
-            error_msg += f"- Pages visited: {len(visited)}\n"
-            error_msg += f"- Successful scrapes: {successful_scrapes}\n"
-            error_msg += f"- Total content: {self.total_content_length} chars\n"
-            error_msg += f"- Base domain: {base_domain}\n\n"
-            error_msg += f"Debug Log (last 15 entries):\n"
-            error_msg += "\n".join(self.debug_info[-15:])
-            
-            return error_msg, {
-                'emails': list(self.company_info['emails']),
-                'phones': list(self.company_info['phones']),
-                'address_india': self.company_info['address_india'],
-                'address_international': self.company_info['address_international'],
-                'pages_scraped': len(visited)
-            }
+        if len(documents) < 3:
+            raise Exception(f"Insufficient content: Only {len(documents)} pages scraped successfully")
         
-        # Add company info header
-        header = "\n" + "="*80 + "\n"
-        header += "COMPANY CONTACT INFORMATION\n"
-        header += "="*80 + "\n\n"
-        
-        if self.company_info['address_india']:
-            header += f"🇮🇳 INDIA OFFICE:\n{self.company_info['address_india']}\n\n"
-        
-        if self.company_info['address_international']:
-            header += f"🌍 INTERNATIONAL OFFICE:\n{self.company_info['address_international']}\n\n"
-        
-        if self.company_info['emails']:
-            header += "📧 EMAILS:\n" + "\n".join([f"  • {e}" for e in sorted(self.company_info['emails'])[:15]]) + "\n\n"
-        
-        if self.company_info['phones']:
-            header += "☎️ PHONES:\n" + "\n".join([f"  • {p}" for p in sorted(self.company_info['phones'])[:15]]) + "\n\n"
-        
-        all_content.insert(0, header)
-        
-        final_content = "\n\n".join(all_content)
-        
-        self.debug_info.append(f"✅ SUCCESS: {len(visited)} pages, {self.total_content_length} chars total")
-        
-        return final_content, {
+        return documents, {
             'emails': list(self.company_info['emails']),
             'phones': list(self.company_info['phones']),
             'address_india': self.company_info['address_india'],
             'address_international': self.company_info['address_international'],
             'pages_scraped': len(visited)
         }
-import streamlit as st
-import time
-from sentence_transformers import SentenceTransformer
-import shutil
-
-class CompanyAI:
-    """AI Engine for company chatbot - ALL ISSUES FIXED"""
-    
-    def __init__(self, company_slug: str):
-        self.company_slug = company_slug
-        self.retriever = None
-        self.cache = {}
-        self.status = {"ready": False, "error": None}
-        self.company_data = None
-    
-    def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
-        """Initialize AI by scraping and embedding - GUARANTEED SUCCESS"""
-        try:
-            # Step 1: Scrape website
-            if progress_callback:
-                progress_callback(0, max_pages, "Starting scraper...")
-            
-            scraper = WebScraper(self.company_slug)
-            content, company_info = scraper.scrape_website(
-                website_url, 
-                max_pages, 
-                progress_callback
-            )
-            
-            # Check for errors
-            if content.startswith("❌"):
-                self.status["error"] = content
-                return False
-            
-            # CRITICAL FIX: Much more lenient content check
-            if len(content) < 100:
-                self.status["error"] = f"Content too short: {len(content)} chars. Debug: {'; '.join(scraper.debug_info[-5:])}"
-                return False
-            
-            self.company_data = company_info
-            
-            # Step 2: Split content with better settings
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=800,
-                chunk_overlap=200,
-                separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""],
-                length_function=len
-            )
-            
-            chunks = splitter.split_text(content)
-            
-            if not chunks:
-                self.status["error"] = "Failed to create text chunks"
-                return False
-            
-            # CRITICAL FIX: Accept shorter chunks
-            meaningful_chunks = [c.strip() for c in chunks if len(c.strip()) > 30]
-            
-            if len(meaningful_chunks) < 2:
-                self.status["error"] = f"Not enough chunks: {len(meaningful_chunks)}. Total chunks: {len(chunks)}"
-                return False
-            
-            # Step 3: Create embeddings with error handling
-            try:
-                embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-            except Exception as e:
-                self.status["error"] = f"Failed to load embedding model: {str(e)}"
-                return False
-            
-            class CustomEmbeddings:
-                def __init__(self, model):
-                    self.model = model
-                
-                def embed_documents(self, texts):
-                    if not texts:
-                        return []
-                    try:
-                        embeddings = self.model.encode(
-                            texts,
-                            normalize_embeddings=True,
-                            show_progress_bar=False,
-                            convert_to_numpy=True,
-                            batch_size=32
-                        )
-                        return embeddings.tolist()
-                    except Exception as e:
-                        print(f"Embedding error: {e}")
-                        return []
-                
-                def embed_query(self, text):
-                    try:
-                        embedding = self.model.encode(
-                            [text],
-                            normalize_embeddings=True,
-                            show_progress_bar=False,
-                            convert_to_numpy=True
-                        )
-                        return embedding[0].tolist()
-                    except Exception as e:
-                        print(f"Query embedding error: {e}")
-                        return [0.0] * 384
-            
-            embeddings = CustomEmbeddings(embedding_model)
-            
-            # Step 4: Create vector store with error handling
-            chroma_dir = get_chroma_directory(self.company_slug)
-            
-            # Clean up existing directory
-            if os.path.exists(chroma_dir):
-                try:
-                    shutil.rmtree(chroma_dir)
-                except Exception as e:
-                    print(f"Warning: Could not remove old chroma dir: {e}")
-            
-            os.makedirs(chroma_dir, exist_ok=True)
-            
-            try:
-                # Create vectorstore with retry logic
-                vectorstore = Chroma.from_texts(
-                    texts=meaningful_chunks,
-                    embedding=embeddings,
-                    persist_directory=chroma_dir,
-                    collection_name="company_docs"
-                )
-                
-                # Verify vectorstore was created
-                if vectorstore._collection.count() == 0:
-                    raise Exception("Vectorstore is empty after creation")
-                
-                self.retriever = vectorstore.as_retriever(
-                    search_type="similarity",
-                    search_kwargs={"k": 6}
-                )
-                
-            except Exception as e:
-                self.status["error"] = f"Vectorstore creation failed: {str(e)}"
-                return False
-            
-            self.status["ready"] = True
-            
-            if progress_callback:
-                progress_callback(max_pages, max_pages, "✅ Initialization complete!")
-            
-            return True
-        
-        except Exception as e:
-            self.status["error"] = f"Critical initialization error: {str(e)}"
-            import traceback
-            print(traceback.format_exc())
-            return False
-    
-    def load_existing(self):
-        """Load existing vector store - FIXED"""
-        try:
-            chroma_dir = get_chroma_directory(self.company_slug)
-            
-            if not os.path.exists(chroma_dir):
-                self.status["error"] = f"Chroma directory not found: {chroma_dir}"
-                return False
-            
-            # Load embedding model
-            embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-            
-            class CustomEmbeddings:
-                def __init__(self, model):
-                    self.model = model
-                
-                def embed_documents(self, texts):
-                    if not texts:
-                        return []
-                    embeddings = self.model.encode(
-                        texts,
-                        normalize_embeddings=True,
-                        show_progress_bar=False,
-                        convert_to_numpy=True
-                    )
-                    return embeddings.tolist()
-                
-                def embed_query(self, text):
-                    embedding = self.model.encode(
-                        [text],
-                        normalize_embeddings=True,
-                        show_progress_bar=False,
-                        convert_to_numpy=True
-                    )
-                    return embedding[0].tolist()
-            
-            embeddings = CustomEmbeddings(embedding_model)
-            
-            # Load existing vectorstore
-            vectorstore = Chroma(
-                persist_directory=chroma_dir,
-                embedding_function=embeddings,
-                collection_name="company_docs"
-            )
-            
-            # Verify it has content
-            if vectorstore._collection.count() == 0:
-                self.status["error"] = "Loaded vectorstore is empty"
-                return False
-            
-            self.retriever = vectorstore.as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": 6}
-            )
-            
-            self.status["ready"] = True
-            return True
-        
-        except Exception as e:
-            self.status["error"] = f"Load error: {str(e)}"
-            import traceback
-            print(traceback.format_exc())
-            return False
-    
-    def get_contact_info(self):
-        """Format company contact information"""
-        if not self.company_data:
-            # Try to load from database
-            db = SessionLocal()
-            try:
-                company = db.query(Company).filter(
-                    Company.company_slug == self.company_slug
-                ).first()
-                
-                if not company:
-                    return "No contact information available."
-                
-                try:
-                    self.company_data = {
-                        'emails': json.loads(company.emails) if company.emails else [],
-                        'phones': json.loads(company.phones) if company.phones else [],
-                        'address_india': company.address_india,
-                        'address_international': company.address_international
-                    }
-                except:
-                    return "Contact information format error."
-            finally:
-                db.close()
-        
-        info = self.company_data
-        if not any([info.get('emails'), info.get('phones'), 
-                   info.get('address_india'), info.get('address_international')]):
-            return "No contact information found in our records."
-        
-        msg = "📞 **CONTACT INFORMATION**\n\n"
-        
-        if info.get('address_india'):
-            msg += f"🇮🇳 **India Office:**\n{info['address_india']}\n\n"
-        
-        if info.get('address_international'):
-            msg += f"🌍 **International Office:**\n{info['address_international']}\n\n"
-        
-        if info.get('emails'):
-            msg += "📧 **Email Addresses:**\n" + "\n".join([f"• {e}" for e in info['emails'][:5]]) + "\n\n"
-        
-        if info.get('phones'):
-            msg += "☎️ **Phone Numbers:**\n" + "\n".join([f"• {p}" for p in info['phones'][:5]]) + "\n"
-        
-        return msg.strip()
-    
-    def ask(self, question: str, session_id: str = None) -> str:
-        """Answer question using RAG - IMPROVED"""
-        if not self.status["ready"]:
-            return "⚠️ AI is still initializing. Please wait a moment..."
-        
-        q_lower = question.lower().strip()
-        
-        # Handle greetings
-        greetings = ["hi", "hello", "hey", "hai", "hii", "helloo", "hi there", 
-                    "hello there", "good morning", "good afternoon", "good evening"]
-        if q_lower in greetings:
-            return "Hello! 👋 I'm here to help you learn about our company. What would you like to know?"
-        
-        # Handle contact requests
-        contact_keywords = ["email", "contact", "phone", "address", "office", 
-                          "location", "reach", "call", "write", "where are you",
-                          "how to contact", "get in touch"]
-        if any(keyword in q_lower for keyword in contact_keywords):
-            return self.get_contact_info()
-        
-        # Check cache
-        cache_key = q_lower[:100]
-        if cache_key in self.cache:
-            return self.cache[cache_key]
-        
-        try:
-            # Retrieve relevant documents
-            docs = self.retriever.invoke(question)
-            
-            if not docs or len(docs) == 0:
-                return "I couldn't find specific information about that in our company data. Could you please rephrase your question or ask something else?"
-            
-            # Build context from retrieved docs
-            context_parts = []
-            for doc in docs:
-                if hasattr(doc, 'page_content') and doc.page_content:
-                    context_parts.append(doc.page_content)
-            
-            if not context_parts:
-                return "I found some information but couldn't extract the content properly. Please try rephrasing your question."
-            
-            context = "\n\n".join(context_parts)[:5000]
-            
-            # Create enhanced prompt
-            prompt = f"""You are a knowledgeable and friendly AI assistant for this company. Answer the user's question based ONLY on the provided context.
-
-Context Information:
-{context}
-
-User Question: {question}
-
-Instructions:
-- Provide a clear, concise answer in 2-5 sentences
-- Use information ONLY from the context above
-- Be specific and include relevant details
-- If the context doesn't contain the answer, politely say so
-- Be professional yet conversational
-- Do not make up or assume information
-
-Answer:"""
-            
-            # Call LLM API with retries
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://chatbot-generator.com",
-                "X-Title": "Company AI Assistant"
-            }
-            
-            payload = {
-                "model": MODEL,
-                "messages": [
-                    {
-                        "role": "system", 
-                        "content": "You are a helpful AI assistant representing this company. Answer questions accurately using only the provided context. Be friendly, professional, and concise."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "temperature": 0.4,
-                "max_tokens": 600,
-                "top_p": 0.9
-            }
-            
-            # Retry logic
-            max_retries = 2
-            for attempt in range(max_retries):
-                try:
-                    response = requests.post(
-                        OPENROUTER_API_BASE,
-                        headers=headers,
-                        json=payload,
-                        timeout=60
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        
-                        if "choices" in result and len(result["choices"]) > 0:
-                            answer = result["choices"][0]["message"]["content"].strip()
-                            
-                            if answer:
-                                self.cache[cache_key] = answer
-                                
-                                # Save to database
-                                self.save_chat(question, answer, session_id)
-                                
-                                return answer
-                            else:
-                                return "I received an empty response. Please try asking again."
-                        else:
-                            return "The AI service returned an unexpected format. Please try again."
-                    
-                    elif response.status_code == 429:
-                        if attempt < max_retries - 1:
-                            time.sleep(2)
-                            continue
-                        return "⚠️ Service is busy. Please wait a moment and try again."
-                    
-                    else:
-                        return f"⚠️ Service error (Code: {response.status_code}). Please try again in a moment."
-                
-                except requests.exceptions.Timeout:
-                    if attempt < max_retries - 1:
-                        continue
-                    return "⚠️ Request timed out. Please try asking again."
-                
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        continue
-                    return f"⚠️ Error processing your request: {str(e)[:100]}"
-            
-            return "⚠️ Unable to get a response after multiple attempts. Please try again."
-        
-        except Exception as e:
-            print(f"Error in ask(): {e}")
-            import traceback
-            print(traceback.format_exc())
-            return f"⚠️ An error occurred: {str(e)[:100]}"
-    
-    def save_chat(self, question: str, answer: str, session_id: str = None):
-        """Save chat to database"""
-        db = SessionLocal()
-        try:
-            chat = ChatHistory(
-                company_slug=self.company_slug,
-                question=question,
-                answer=answer,
-                session_id=session_id
-            )
-            db.add(chat)
-            db.commit()
-        except Exception as e:
-            print(f"Error saving chat: {e}")
-            db.rollback()
-        finally:
-            db.close()
 
 
 # ============================================================================
@@ -924,12 +406,11 @@ Answer:"""
 # ============================================================================
 
 def create_company(company_name: str, website_url: str, max_pages: int = 40) -> Optional[str]:
-    """Create new company in database"""
+    """Create new company"""
     db = SessionLocal()
     try:
         slug = create_slug(company_name)
         
-        # Check if exists
         existing = db.query(Company).filter(Company.company_slug == slug).first()
         if existing:
             return None
@@ -946,7 +427,6 @@ def create_company(company_name: str, website_url: str, max_pages: int = 40) -> 
         db.refresh(company)
         
         return slug
-    
     except Exception as e:
         print(f"Error creating company: {e}")
         db.rollback()
@@ -956,7 +436,7 @@ def create_company(company_name: str, website_url: str, max_pages: int = 40) -> 
 
 
 def update_company_after_scraping(slug: str, company_info: Dict, status: str = "completed"):
-    """Update company info after scraping"""
+    """Update company after scraping"""
     db = SessionLocal()
     try:
         company = db.query(Company).filter(Company.company_slug == slug).first()
@@ -992,89 +472,429 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
         return db.query(Company).filter(Company.company_slug == slug).first()
     finally:
         db.close()
+"""
+MULTI-COMPANY AI CHATBOT - PART 2: AI ENGINE + STREAMLIT UI
+Fixed RAG with proper answer generation
+"""
 
+import streamlit as st
+import time
+import requests
+import json
+import os
+from typing import List
+import shutil
 
-# ============================================================================
-# STREAMLIT UI - COMPLETE APPLICATION
-# ============================================================================
-
-# Page config
-st.set_page_config(
-    page_title="Multi-Company AI Chatbot Generator",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
+# Import Part 1 components
+from part1_backend import (
+    Company, ChatHistory, UserContact, ScrapedContent,
+    WebScraper, create_company, update_company_after_scraping,
+    get_all_companies, get_company_by_slug, get_chroma_directory,
+    SessionLocal, OPENROUTER_API_KEY, OPENROUTER_API_BASE, MODEL
 )
 
-# Enhanced CSS
+# LangChain imports
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.schema import Document
+from langchain.prompts import PromptTemplate
+
+
+# ============================================================================
+# ENHANCED AI ENGINE WITH PROPER RAG
+# ============================================================================
+
+class CompanyAI:
+    """Fixed AI Engine with proper context retrieval and answering"""
+    
+    def __init__(self, company_slug: str):
+        self.company_slug = company_slug
+        self.vectorstore = None
+        self.retriever = None
+        self.embeddings = None
+        self.status = {"ready": False, "error": None}
+        self.company_data = None
+        
+        # Enhanced prompt template
+        self.qa_template = """You are an intelligent AI assistant for {company_name}. Your role is to answer questions accurately based on the provided context from the company's website.
+
+CONTEXT FROM COMPANY WEBSITE:
+{context}
+
+CHAT HISTORY:
+{chat_history}
+
+USER QUESTION: {question}
+
+INSTRUCTIONS:
+1. Answer the question using ONLY information from the context above
+2. Be specific, detailed, and helpful
+3. If you cannot find the answer in the context, say "I don't have specific information about that in our knowledge base, but I can help you get in touch with our team."
+4. Be conversational and friendly
+5. Include relevant details like services, products, or contact information when appropriate
+6. If the question is about contact details, provide all available information
+
+ANSWER (2-5 sentences, be specific and helpful):"""
+
+        self.qa_prompt = PromptTemplate(
+            template=self.qa_template,
+            input_variables=["company_name", "context", "chat_history", "question"]
+        )
+    
+    def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
+        """Initialize AI by scraping and creating vector store"""
+        try:
+            # Step 1: Scrape website
+            if progress_callback:
+                progress_callback(0, max_pages, "Starting scraper...")
+            
+            scraper = WebScraper(self.company_slug)
+            documents, company_info = scraper.scrape_website(
+                website_url, 
+                max_pages, 
+                progress_callback
+            )
+            
+            if len(documents) < 3:
+                self.status["error"] = f"Not enough content scraped: {len(documents)} pages"
+                return False
+            
+            self.company_data = company_info
+            
+            # Step 2: Create better text chunks
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200,
+                separators=["\n\n", "\n", ". ", "! ", "? ", ", ", " "],
+                length_function=len
+            )
+            
+            # Split documents
+            split_docs = text_splitter.split_documents(documents)
+            
+            if len(split_docs) < 5:
+                self.status["error"] = f"Not enough chunks created: {len(split_docs)}"
+                return False
+            
+            # Step 3: Create embeddings with better model
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            # Step 4: Create vector store
+            chroma_dir = get_chroma_directory(self.company_slug)
+            
+            # Clean existing directory
+            if os.path.exists(chroma_dir):
+                shutil.rmtree(chroma_dir)
+            
+            os.makedirs(chroma_dir, exist_ok=True)
+            
+            # Create Chroma vectorstore
+            self.vectorstore = Chroma.from_documents(
+                documents=split_docs,
+                embedding=self.embeddings,
+                persist_directory=chroma_dir,
+                collection_name="company_knowledge"
+            )
+            
+            # Verify creation
+            if self.vectorstore._collection.count() == 0:
+                raise Exception("Vectorstore is empty")
+            
+            # Create retriever with better search
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="mmr",  # Maximum Marginal Relevance for diverse results
+                search_kwargs={
+                    "k": 8,  # Retrieve more documents
+                    "fetch_k": 20,  # Fetch more for MMR
+                    "lambda_mult": 0.7  # Balance between relevance and diversity
+                }
+            )
+            
+            self.status["ready"] = True
+            
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "✅ Ready!")
+            
+            return True
+        
+        except Exception as e:
+            self.status["error"] = f"Initialization error: {str(e)}"
+            import traceback
+            print(traceback.format_exc())
+            return False
+    
+    def load_existing(self):
+        """Load existing vector store"""
+        try:
+            chroma_dir = get_chroma_directory(self.company_slug)
+            
+            if not os.path.exists(chroma_dir):
+                self.status["error"] = "Vector store not found"
+                return False
+            
+            # Load embeddings
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            # Load vectorstore
+            self.vectorstore = Chroma(
+                persist_directory=chroma_dir,
+                embedding_function=self.embeddings,
+                collection_name="company_knowledge"
+            )
+            
+            if self.vectorstore._collection.count() == 0:
+                self.status["error"] = "Vectorstore is empty"
+                return False
+            
+            # Create retriever
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": 8,
+                    "fetch_k": 20,
+                    "lambda_mult": 0.7
+                }
+            )
+            
+            # Load company data
+            company = get_company_by_slug(self.company_slug)
+            if company:
+                try:
+                    self.company_data = {
+                        'emails': json.loads(company.emails) if company.emails else [],
+                        'phones': json.loads(company.phones) if company.phones else [],
+                        'address_india': company.address_india,
+                        'address_international': company.address_international
+                    }
+                except:
+                    self.company_data = {}
+            
+            self.status["ready"] = True
+            return True
+        
+        except Exception as e:
+            self.status["error"] = f"Load error: {str(e)}"
+            return False
+    
+    def get_contact_info(self):
+        """Format contact information"""
+        if not self.company_data:
+            return "Contact information not available."
+        
+        info = self.company_data
+        msg = "📞 **CONTACT INFORMATION**\n\n"
+        
+        if info.get('address_india'):
+            msg += f"🇮🇳 **India Office:**\n{info['address_india']}\n\n"
+        
+        if info.get('address_international'):
+            msg += f"🌍 **International Office:**\n{info['address_international']}\n\n"
+        
+        if info.get('emails'):
+            msg += "📧 **Email:**\n" + "\n".join([f"• {e}" for e in info['emails'][:5]]) + "\n\n"
+        
+        if info.get('phones'):
+            msg += "☎️ **Phone:**\n" + "\n".join([f"• {p}" for p in info['phones'][:5]]) + "\n"
+        
+        return msg.strip()
+    
+    def ask(self, question: str, chat_history: List = None, session_id: str = None) -> str:
+        """Answer question using enhanced RAG"""
+        if not self.status["ready"]:
+            return "⚠️ System is still initializing. Please wait..."
+        
+        q_lower = question.lower().strip()
+        
+        # Handle greetings
+        greetings = ["hi", "hello", "hey", "hai"]
+        if q_lower in greetings or len(q_lower) < 5:
+            company = get_company_by_slug(self.company_slug)
+            company_name = company.company_name if company else "our company"
+            return f"Hello! 👋 I'm here to answer questions about {company_name}. How can I help you today?"
+        
+        # Handle contact requests
+        contact_keywords = ["email", "contact", "phone", "address", "office", "location", "reach"]
+        if any(keyword in q_lower for keyword in contact_keywords):
+            return self.get_contact_info()
+        
+        try:
+            # Retrieve relevant documents
+            relevant_docs = self.retriever.get_relevant_documents(question)
+            
+            if not relevant_docs or len(relevant_docs) == 0:
+                return "I couldn't find specific information about that. Could you rephrase your question or ask about something else?"
+            
+            # Build context from documents
+            context_parts = []
+            for doc in relevant_docs[:6]:  # Use top 6 documents
+                if hasattr(doc, 'page_content') and doc.page_content:
+                    # Add source info for better context
+                    source = doc.metadata.get('source', 'unknown')
+                    title = doc.metadata.get('title', '')
+                    
+                    context_part = f"[From: {title if title else source}]\n{doc.page_content}"
+                    context_parts.append(context_part)
+            
+            if not context_parts:
+                return "I found some documents but couldn't extract the content. Please try again."
+            
+            context = "\n\n---\n\n".join(context_parts)
+            
+            # Format chat history
+            history_text = ""
+            if chat_history:
+                history_text = "\n".join([
+                    f"User: {msg['question']}\nAssistant: {msg['answer']}" 
+                    for msg in chat_history[-3:]  # Last 3 exchanges
+                ])
+            
+            # Get company name
+            company = get_company_by_slug(self.company_slug)
+            company_name = company.company_name if company else "the company"
+            
+            # Build enhanced prompt
+            prompt = self.qa_prompt.format(
+                company_name=company_name,
+                context=context[:6000],  # Limit context size
+                chat_history=history_text,
+                question=question
+            )
+            
+            # Call LLM API
+            answer = self._call_llm(prompt, question, context)
+            
+            if answer:
+                # Save to database
+                self.save_chat(question, answer, session_id)
+                return answer
+            else:
+                return "I'm having trouble generating a response. Please try again."
+        
+        except Exception as e:
+            print(f"Error in ask(): {e}")
+            return "An error occurred while processing your question. Please try again."
+    
+    def _call_llm(self, prompt: str, question: str, context: str, max_retries: int = 2) -> str:
+        """Call LLM API with retry logic"""
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://chatbot.com",
+        }
+        
+        payload = {
+            "model": MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful AI assistant. Answer questions accurately based on the provided context. Be specific, friendly, and professional."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.5,
+            "max_tokens": 800,
+            "top_p": 0.9
+        }
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    OPENROUTER_API_BASE,
+                    headers=headers,
+                    json=payload,
+                    timeout=45
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    if "choices" in result and len(result["choices"]) > 0:
+                        answer = result["choices"][0]["message"]["content"].strip()
+                        
+                        if answer and len(answer) > 20:
+                            return answer
+                
+                elif response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    return None
+            
+            except Exception as e:
+                print(f"LLM call error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+        
+        return None
+    
+    def save_chat(self, question: str, answer: str, session_id: str = None):
+        """Save chat to database"""
+        db = SessionLocal()
+        try:
+            chat = ChatHistory(
+                company_slug=self.company_slug,
+                question=question,
+                answer=answer,
+                session_id=session_id
+            )
+            db.add(chat)
+            db.commit()
+        except Exception as e:
+            print(f"Error saving chat: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
+
+# ============================================================================
+# STREAMLIT UI
+# ============================================================================
+
+st.set_page_config(
+    page_title="AI Chatbot Generator",
+    page_icon="🤖",
+    layout="wide"
+)
+
+# CSS
 st.markdown("""
 <style>
-    .main { 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-    }
-    
-    [data-testid="stSidebar"] { 
-        background: linear-gradient(180deg, #2d3748 0%, #1a202c 100%); 
-    }
-    
-    [data-testid="stSidebar"] * {
-        color: #ffffff !important;
-    }
-    
+    .main { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    [data-testid="stSidebar"] { background: linear-gradient(180deg, #2d3748 0%, #1a202c 100%); }
+    [data-testid="stSidebar"] * { color: #ffffff !important; }
     .header-container {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2.5rem;
-        border-radius: 20px;
+        padding: 2rem;
+        border-radius: 15px;
         margin-bottom: 2rem;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         text-align: center;
     }
-    
-    .header-title {
-        color: white;
-        font-size: 3rem;
-        font-weight: bold;
-        margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-    }
-    
-    .header-subtitle {
-        color: rgba(255,255,255,0.95);
-        font-size: 1.3rem;
-        margin-top: 0.5rem;
-    }
-    
+    .header-title { color: white; font-size: 2.5rem; font-weight: bold; margin: 0; }
+    .header-subtitle { color: rgba(255,255,255,0.9); font-size: 1.1rem; margin-top: 0.5rem; }
     .company-card {
         background: white;
         padding: 1.5rem;
-        border-radius: 15px;
+        border-radius: 10px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin: 1rem 0;
-        transition: transform 0.2s;
     }
-    
-    .company-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-    }
-    
-    .status-badge {
-        padding: 0.4rem 1rem;
-        border-radius: 20px;
-        font-size: 0.9rem;
-        font-weight: bold;
-        display: inline-block;
-    }
-    
-    .status-completed { background: #10b981; color: white; }
-    .status-processing { background: #f59e0b; color: white; }
-    .status-pending { background: #6b7280; color: white; }
-    .status-failed { background: #ef4444; color: white; }
-    
-    .stButton button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-    }
+    .status-completed { background: #10b981; color: white; padding: 0.3rem 0.8rem; border-radius: 15px; }
+    .status-pending { background: #6b7280; color: white; padding: 0.3rem 0.8rem; border-radius: 15px; }
+    .status-failed { background: #ef4444; color: white; padding: 0.3rem 0.8rem; border-radius: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1087,14 +907,10 @@ if "ai_instance" not in st.session_state:
     st.session_state.ai_instance = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "question_count" not in st.session_state:
-    st.session_state.question_count = 0
-if "user_info_collected" not in st.session_state:
-    st.session_state.user_info_collected = False
-if "session_id" not in st.session_state:
-    st.session_state.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-# Sidebar Navigation
+# Sidebar
 with st.sidebar:
     st.markdown("### 🧭 Navigation")
     
@@ -1102,462 +918,172 @@ with st.sidebar:
         st.session_state.page = "home"
         st.rerun()
     
-    if st.button("➕ Create New Chatbot", use_container_width=True):
+    if st.button("➕ Create Chatbot", use_container_width=True):
         st.session_state.page = "create"
         st.rerun()
     
-    if st.button("📋 View All Chatbots", use_container_width=True):
+    if st.button("📋 All Chatbots", use_container_width=True):
         st.session_state.page = "list"
         st.rerun()
-    
-    st.markdown("---")
-    
-    if st.session_state.current_company:
-        company = get_company_by_slug(st.session_state.current_company)
-        if company:
-            st.markdown(f"**Active Chatbot:**")
-            st.info(company.company_name)
-            
-            if st.button("💬 Back to Chat", use_container_width=True):
-                st.session_state.page = "chat"
-                st.rerun()
 
-
-# ============================================================================
-# PAGE ROUTING
-# ============================================================================
-
+# Page routing
 if st.session_state.page == "home":
     st.markdown("""
     <div class="header-container">
-        <h1 class="header-title">🤖 Multi-Company AI Chatbot Generator</h1>
-        <p class="header-subtitle">Create Intelligent Chatbots for Any Company in Minutes!</p>
+        <h1 class="header-title">🤖 AI Chatbot Generator</h1>
+        <p class="header-subtitle">Create intelligent chatbots in minutes!</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("### ⚡ Quick Setup")
-        st.write("Provide company name and website URL - we automatically scrape and learn!")
-    
-    with col2:
-        st.markdown("### 🧠 Smart AI")
-        st.write("Uses advanced RAG to answer questions accurately based on website content")
-    
-    with col3:
-        st.markdown("### 📊 Multi-Tenant")
-        st.write("Manage unlimited company chatbots from one unified dashboard")
-    
-    st.markdown("---")
-    
-    st.markdown("### 🚀 Get Started")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("➕ Create Your First Chatbot", use_container_width=True, type="primary"):
+        if st.button("➕ Create New Chatbot", use_container_width=True, type="primary"):
             st.session_state.page = "create"
             st.rerun()
     
     with col2:
-        if st.button("📋 View Existing Chatbots", use_container_width=True):
+        if st.button("📋 View Chatbots", use_container_width=True):
             st.session_state.page = "list"
             st.rerun()
-    
-    # Show existing companies count
-    companies = get_all_companies()
-    if companies:
-        st.markdown("---")
-        st.success(f"✅ You have {len(companies)} chatbot(s) ready!")
-
 
 elif st.session_state.page == "create":
     st.markdown("""
     <div class="header-container">
         <h1 class="header-title">➕ Create New Chatbot</h1>
-        <p class="header-subtitle">Enter company details to generate your AI assistant</p>
     </div>
     """, unsafe_allow_html=True)
     
-    with st.form("create_chatbot_form"):
-        company_name = st.text_input(
-            "Company Name *",
-            placeholder="e.g., Acme Corporation",
-            help="Enter the full company name"
-        )
+    with st.form("create_form"):
+        company_name = st.text_input("Company Name *", placeholder="Acme Corp")
+        website_url = st.text_input("Website URL *", placeholder="https://example.com")
+        max_pages = st.slider("Pages to Scrape", 10, 80, 40, 10)
         
-        website_url = st.text_input(
-            "Website URL *",
-            placeholder="e.g., https://example.com",
-            help="Enter the company's main website URL"
-        )
-        
-        max_pages = st.slider(
-            "Maximum Pages to Scrape",
-            min_value=10,
-            max_value=100,
-            value=40,
-            step=5,
-            help="More pages = more comprehensive knowledge (but slower setup)"
-        )
-        
-        st.info("💡 **Tip:** Start with 40 pages. You can always create a new chatbot with more pages later.")
-        
-        submit = st.form_submit_button("🚀 Create Chatbot", use_container_width=True, type="primary")
+        submit = st.form_submit_button("🚀 Create", use_container_width=True, type="primary")
         
         if submit:
             if not company_name or not website_url:
-                st.error("❌ Please fill in all required fields")
-            elif len(company_name) < 2:
-                st.error("❌ Company name is too short")
+                st.error("Fill all fields!")
             else:
-                # Validate and normalize URL
-                if not website_url.startswith(('http://', 'https://')):
+                if not website_url.startswith('http'):
                     website_url = 'https://' + website_url
                 
-                # Check URL format
-                try:
-                    parsed = urlparse(website_url)
-                    if not parsed.netloc:
-                        st.error("❌ Invalid website URL format")
-                        st.stop()
-                except:
-                    st.error("❌ Invalid website URL")
-                    st.stop()
-                
-                # Create company
                 slug = create_company(company_name, website_url, max_pages)
                 
                 if not slug:
-                    st.error("❌ A company with this name already exists!")
-                    st.info("💡 Try using a different name or check the 'View All Chatbots' page")
+                    st.error("Company already exists!")
                 else:
-                    st.success(f"✅ Company created: **{company_name}**")
-                    
-                    # Initialize AI with enhanced progress tracking
-                    st.markdown("### 🤖 Initializing AI Assistant...")
+                    st.success(f"✅ Created: {company_name}")
                     
                     progress_bar = st.progress(0)
                     status_text = st.empty()
-                    detail_text = st.empty()
                     
                     def progress_callback(current, total, url):
-                        progress = min(current / total, 1.0)
-                        progress_bar.progress(progress)
-                        status_text.text(f"📄 Scraping page {current} of {total}")
-                        detail_text.caption(f"Current: {url[:70]}...")
+                        progress_bar.progress(min(current / total, 1.0))
+                        status_text.text(f"📄 Page {current}/{total}")
                     
                     ai = CompanyAI(slug)
                     success = ai.initialize(website_url, max_pages, progress_callback)
                     
                     if success:
-                        # Update database
                         update_company_after_scraping(slug, ai.company_data, "completed")
-                        
                         progress_bar.progress(1.0)
-                        status_text.success("✅ Chatbot initialized successfully!")
-                        detail_text.empty()
-                        
+                        st.success("✅ Ready!")
                         st.balloons()
-                        
                         time.sleep(2)
                         
-                        # Navigate to chat
                         st.session_state.current_company = slug
                         st.session_state.ai_instance = ai
                         st.session_state.page = "chat"
                         st.session_state.messages = []
-                        st.session_state.question_count = 0
-                        st.session_state.user_info_collected = False
+                        st.session_state.chat_history = []
                         st.rerun()
                     else:
                         update_company_after_scraping(slug, {}, "failed")
-                        
-                        st.error("❌ Initialization failed!")
-                        
-                        error_msg = ai.status.get('error', 'Unknown error')
-                        with st.expander("🔍 View Error Details"):
-                            st.code(error_msg, language="text")
-                        
-                        st.warning("💡 **Troubleshooting Tips:**")
-                        st.markdown("""
-                        - Increase the number of pages to scrape (try 60-80)
-                        - Verify the website URL is correct and accessible
-                        - Check if the website has a robots.txt that blocks scraping
-                        - Some websites may have anti-scraping measures
-                        - Try again in a few moments
-                        """)
-
+                        st.error("❌ Initialization failed")
+                        with st.expander("Error Details"):
+                            st.code(ai.status.get('error', 'Unknown'))
 
 elif st.session_state.page == "list":
     st.markdown("""
     <div class="header-container">
         <h1 class="header-title">📋 All Chatbots</h1>
-        <p class="header-subtitle">Manage your company AI assistants</p>
     </div>
     """, unsafe_allow_html=True)
     
     companies = get_all_companies()
     
     if not companies:
-        st.info("👋 No chatbots created yet. Create your first one to get started!")
-        
-        if st.button("➕ Create Your First Chatbot", type="primary"):
-            st.session_state.page = "create"
-            st.rerun()
+        st.info("No chatbots yet. Create one!")
     else:
-        st.markdown(f"**Total Chatbots:** {len(companies)}")
-        st.markdown("---")
-        
         for company in companies:
-            with st.container():
-                st.markdown('<div class="company-card">', unsafe_allow_html=True)
-                
-                col1, col2, col3 = st.columns([3, 2, 2])
-                
-                with col1:
-                    st.markdown(f"### {company.company_name}")
-                    st.markdown(f"🌐 [{company.website_url}]({company.website_url})")
-                    st.caption(f"📄 **Pages Scraped:** {company.pages_scraped}")
-                
-                with col2:
-                    status_class = f"status-{company.scraping_status}"
-                    st.markdown(
-                        f'<span class="status-badge {status_class}">{company.scraping_status.upper()}</span>',
-                        unsafe_allow_html=True
-                    )
-                    
-                    if company.last_scraped:
-                        st.caption(f"🕐 {company.last_scraped.strftime('%Y-%m-%d %H:%M')}")
-                
-                with col3:
-                    if company.scraping_status == "completed":
-                        if st.button(f"💬 Open Chat", key=f"chat_{company.id}", type="primary"):
-                            st.session_state.current_company = company.company_slug
-                            st.session_state.page = "chat"
-                            st.session_state.messages = []
-                            st.session_state.question_count = 0
-                            st.session_state.user_info_collected = False
-                            st.session_state.ai_instance = None  # CRITICAL: Reset AI instance
-                            st.rerun()
-                    elif company.scraping_status == "failed":
-                        st.button("❌ Failed", key=f"fail_{company.id}", disabled=True)
-                    else:
-                        st.button("⏳ Processing", key=f"wait_{company.id}", disabled=True)
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-
+            st.markdown('<div class="company-card">', unsafe_allow_html=True)
+            col1, col2, col3 = st.columns([3, 2, 2])
+            
+            with col1:
+                st.markdown(f"### {company.company_name}")
+                st.caption(f"🌐 {company.website_url}")
+            
+            with col2:
+                st.markdown(f'<span class="status-{company.scraping_status}">{company.scraping_status.upper()}</span>', unsafe_allow_html=True)
+            
+            with col3:
+                if company.scraping_status == "completed":
+                    if st.button("💬 Chat", key=f"chat_{company.id}", type="primary"):
+                        st.session_state.current_company = company.company_slug
+                        st.session_state.page = "chat"
+                        st.session_state.messages = []
+                        st.session_state.chat_history = []
+                        st.session_state.ai_instance = None
+                        st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.page == "chat":
-    # CRITICAL FIX: Proper validation and initialization
     if not st.session_state.current_company:
-        st.warning("⚠️ No company selected. Please select a chatbot from the list.")
-        if st.button("📋 Go to Chatbot List"):
-            st.session_state.page = "list"
-            st.rerun()
+        st.warning("No company selected")
         st.stop()
     
     company = get_company_by_slug(st.session_state.current_company)
     
-    if not company:
-        st.error("❌ Company not found in database!")
-        if st.button("📋 Back to List"):
-            st.session_state.page = "list"
-            st.rerun()
+    if not company or company.scraping_status != "completed":
+        st.error("Chatbot not ready")
         st.stop()
     
-    if company.scraping_status != "completed":
-        st.error(f"⚠️ This chatbot is not ready yet. Status: {company.scraping_status}")
-        if st.button("📋 Back to List"):
-            st.session_state.page = "list"
-            st.rerun()
-        st.stop()
-    
-    # CRITICAL FIX: Initialize AI properly
-    if not st.session_state.ai_instance or \
-       st.session_state.ai_instance.company_slug != st.session_state.current_company:
-        
-        with st.spinner("🔄 Loading AI assistant..."):
+    # Load AI
+    if not st.session_state.ai_instance:
+        with st.spinner("Loading AI..."):
             ai = CompanyAI(st.session_state.current_company)
-            
-            load_success = ai.load_existing()
-            
-            if not load_success:
-                st.error("❌ Failed to load AI assistant!")
-                st.error(f"Error: {ai.status.get('error', 'Unknown error')}")
-                
-                with st.expander("🔧 Debug Information"):
-                    st.code(f"""
-Company Slug: {st.session_state.current_company}
-Chroma Directory: {get_chroma_directory(st.session_state.current_company)}
-Directory Exists: {os.path.exists(get_chroma_directory(st.session_state.current_company))}
-Status: {ai.status}
-                    """)
-                
-                st.warning("💡 **Possible Solutions:**")
-                st.markdown("""
-                - The chatbot data may have been deleted
-                - Try re-creating the chatbot
-                - Contact support if the issue persists
-                """)
-                
-                if st.button("🔄 Re-create This Chatbot"):
-                    st.session_state.page = "create"
-                    st.rerun()
-                
-                if st.button("📋 Back to List"):
-                    st.session_state.page = "list"
-                    st.rerun()
-                
+            if not ai.load_existing():
+                st.error("Failed to load AI")
                 st.stop()
-            
-            # Successfully loaded
             st.session_state.ai_instance = ai
-            
-            # Load company data from database
-            try:
-                ai.company_data = {
-                    'emails': json.loads(company.emails) if company.emails else [],
-                    'phones': json.loads(company.phones) if company.phones else [],
-                    'address_india': company.address_india,
-                    'address_international': company.address_international
-                }
-            except Exception as e:
-                print(f"Error loading company data: {e}")
-                ai.company_data = {}
     
-    # Display header
     st.markdown(f"""
     <div class="header-container">
         <h1 class="header-title">💬 Chat with {company.company_name}</h1>
-        <p class="header-subtitle">AI Assistant powered by company website data</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Show helpful info
-    with st.expander("ℹ️ About This Chatbot"):
-        st.markdown(f"""
-        **Company:** {company.company_name}  
-        **Website:** [{company.website_url}]({company.website_url})  
-        **Pages Indexed:** {company.pages_scraped}  
-        **Last Updated:** {company.last_scraped.strftime('%Y-%m-%d %H:%M') if company.last_scraped else 'N/A'}
-        
-        This AI assistant has been trained on content from the company's website and can answer questions about:
-        - Company information and services
-        - Products and solutions
-        - Contact details
-        - And more!
-        """)
-    
-    # Display chat history
+    # Display messages
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
     
     # Chat input
-    if user_input := st.chat_input(f"Ask me anything about {company.company_name}..."):
-        # Add user message
+    if user_input := st.chat_input("Ask anything..."):
         st.session_state.messages.append({"role": "user", "content": user_input})
+        
         with st.chat_message("user"):
             st.markdown(user_input)
         
-        # Increment question count
-        st.session_state.question_count += 1
-        
-        # Check if should show contact form (after 3 questions)
-        if st.session_state.question_count == 3 and not st.session_state.user_info_collected:
-            # Get AI response first
-            with st.chat_message("assistant"):
-                with st.spinner("🤔 Thinking..."):
-                    answer = st.session_state.ai_instance.ask(
-                        user_input,
-                        st.session_state.session_id
-                    )
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-            
-            # Show contact form
-            st.markdown("---")
-            st.markdown("### 📋 Help Us Serve You Better!")
-            st.info("💡 Share your contact details to receive personalized assistance and updates")
-            
-            with st.form("contact_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    name = st.text_input("Name *", placeholder="John Doe")
-                    email = st.text_input("Email *", placeholder="john@example.com")
-                with col2:
-                    phone = st.text_input("Phone *", placeholder="+1234567890")
-                    st.write("")  # Spacing
-                
-                submit_contact = st.form_submit_button("✅ Submit Details", use_container_width=True, type="primary")
-                
-                if submit_contact:
-                    if name and email and phone:
-                        db = SessionLocal()
-                        try:
-                            contact = UserContact(
-                                company_slug=st.session_state.current_company,
-                                name=name,
-                                email=email,
-                                phone=phone,
-                                session_id=st.session_state.session_id
-                            )
-                            db.add(contact)
-                            db.commit()
-                            
-                            st.session_state.user_info_collected = True
-                            st.success("✅ Thank you! Your details have been saved. Continue chatting...")
-                            time.sleep(1.5)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error saving contact: {str(e)}")
-                            db.rollback()
-                        finally:
-                            db.close()
-                    else:
-                        st.error("❌ Please fill in all required fields")
-            
-            # Stop execution here to show the form
-            st.stop()
-        
-        # Normal AI response
         with st.chat_message("assistant"):
-            with st.spinner("🤔 Thinking..."):
+            with st.spinner("Thinking..."):
                 answer = st.session_state.ai_instance.ask(
                     user_input,
-                    st.session_state.session_id
+                    st.session_state.chat_history
                 )
             st.markdown(answer)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
-    
-    # Sidebar info in chat page
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("### 💡 Quick Actions")
         
-        if st.button("🔄 Reset Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.question_count = 0
-            st.session_state.user_info_collected = False
-            st.session_state.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
-            st.success("Chat reset!")
-            time.sleep(0.5)
-            st.rerun()
-        
-        st.markdown("---")
-        st.markdown("### 📊 Chat Stats")
-        st.metric("Questions Asked", st.session_state.question_count)
-        st.metric("Messages", len(st.session_state.messages))
-
-
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; padding: 20px; color: white;'>
-    <strong>🤖 Multi-Company AI Chatbot Generator</strong><br>
-    Built with Streamlit • LangChain • ChromaDB • OpenRouter<br>
-    © 2025 All Rights Reserved
-</div>
-""", unsafe_allow_html=True)
+        st.session_state.messages.append({"role": "assistant", "content": answer})
+        st.session_state.chat_history.append({"question": user_input, "answer": answer})
