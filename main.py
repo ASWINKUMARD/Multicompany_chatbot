@@ -18,10 +18,17 @@ import json
 from typing import Optional, Dict, List, Tuple
 import time
 
+# ============================================================================
+# DATABASE CONFIGURATION
+# ============================================================================
 DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+# ============================================================================
+# DATABASE MODELS
+# ============================================================================
 
 class Company(Base):
     """Stores information about each company that has a chatbot"""
@@ -90,8 +97,13 @@ class ScrapedContent(Base):
     content = Column(Text, nullable=False)
     scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+
+# Create all tables
 Base.metadata.create_all(bind=engine)
 
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "google/gemini-2.0-flash-exp:free"
@@ -102,6 +114,10 @@ PRIORITY_PAGES = [
     "technology", "expertise", "what-we-do", "who-we-are", "footer",
     "about-us", "contact-us", "our-services", "our-team", "home", "index"
 ]
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 def create_slug(company_name: str) -> str:
     """Convert company name to URL-friendly slug"""
@@ -114,6 +130,11 @@ def create_slug(company_name: str) -> str:
 def get_chroma_directory(company_slug: str) -> str:
     """Get the ChromaDB directory path for a specific company"""
     return f"./chroma_db/{company_slug}"
+
+
+# ============================================================================
+# ULTRA-AGGRESSIVE WEB SCRAPER (ALL ISSUES FIXED)
+# ============================================================================
 
 class WebScraper:
     """Handles web scraping - MAXIMUM content extraction"""
@@ -128,26 +149,24 @@ class WebScraper:
         }
         self.scraped_content = {}
         self.debug_info = []
-        self.total_content_length = 0  # Track total content
+        self.total_content_length = 0
     
     def clean_text(self, text: str) -> str:
         """Aggressively clean and normalize text"""
-        # Remove extra whitespace
         text = re.sub(r'\s+', ' ', text)
-        # Remove special characters but keep punctuation
         text = re.sub(r'[^\w\s.,!?;:()\-\'\"]+', '', text)
         return text.strip()
     
     def extract_contact_info(self, soup: BeautifulSoup, text: str):
         """Extract ALL contact information"""
-        # Extract emails - AGGRESSIVE
+        # Extract emails
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
         emails = re.findall(email_pattern, text)
         for email in emails:
             if not email.lower().endswith(('.png', '.jpg', '.gif', '.svg', '.css', '.js')):
                 self.company_info['emails'].add(email.lower())
         
-        # Extract phones - MULTIPLE patterns
+        # Extract phones
         phone_patterns = [
             r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
             r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
@@ -191,11 +210,9 @@ class WebScraper:
         try:
             parsed = urlparse(url)
             
-            # Must be same domain
             if parsed.netloc != base_domain:
                 return False
             
-            # Skip binary files and admin
             skip_extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', 
                              '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
                              '.mp4', '.mp3', '.avi', '.mov', '.css', '.js', '.ico']
@@ -214,7 +231,6 @@ class WebScraper:
                 if path in url_lower:
                     return False
             
-            # Skip anchor links and query duplicates
             if '#' in url or '?' in url:
                 return False
             
@@ -264,7 +280,7 @@ class WebScraper:
                 elements = soup.select(selector)
                 for elem in elements:
                     text = elem.get_text(separator="\n", strip=True)
-                    if len(text) > 100:  # Lowered threshold
+                    if len(text) > 100:
                         collected_texts.append(text)
             
             # 6. STRATEGY 2: Extract ALL meaningful tags
@@ -272,7 +288,6 @@ class WebScraper:
                             'td', 'span', 'div', 'a', 'strong', 'em']:
                 for tag in soup.find_all(tag_name):
                     text = tag.get_text(strip=True)
-                    # Accept even short texts
                     if len(text) > 15 and not text.isdigit():
                         collected_texts.append(text)
             
@@ -292,17 +307,14 @@ class WebScraper:
             
             # 9. Clean and deduplicate
             if collected_texts:
-                # Join all texts
                 combined = "\n".join(collected_texts)
                 
-                # Split into lines and clean
                 lines = []
                 for line in combined.split("\n"):
                     cleaned = self.clean_text(line)
-                    if len(cleaned) > 10:  # Very low threshold
+                    if len(cleaned) > 10:
                         lines.append(cleaned)
                 
-                # Remove duplicates while preserving order
                 seen = set()
                 unique_lines = []
                 for line in lines:
@@ -312,7 +324,7 @@ class WebScraper:
                         unique_lines.append(line)
                 
                 content_dict['main_content'] = "\n".join(unique_lines)
-                content_dict['raw_text'] = combined[:5000]  # Keep raw for backup
+                content_dict['raw_text'] = combined[:5000]
             
             # 10. Add title if content is short
             if len(content_dict['main_content']) < 200 and content_dict['title']:
@@ -320,7 +332,6 @@ class WebScraper:
             
         except Exception as e:
             self.debug_info.append(f"Extraction error {url}: {str(e)}")
-            # Even on error, try to get SOMETHING
             try:
                 content_dict['main_content'] = soup.get_text(separator="\n", strip=True)[:3000]
             except:
@@ -330,15 +341,12 @@ class WebScraper:
     
     def scrape_website(self, base_url: str, max_pages: int = 40, 
                       progress_callback=None) -> Tuple[str, Dict]:
-        """
-        Scrape website - GUARANTEED to extract content
-        """
+        """Scrape website - GUARANTEED to extract content"""
         visited = set()
         all_content = []
         queue = deque()
         base_domain = urlparse(base_url).netloc
         
-        # Normalize base URL
         base_url = base_url.rstrip('/') + '/'
         
         # Add priority pages with ALL variations
@@ -355,10 +363,8 @@ class WebScraper:
                 if url not in queue:
                     queue.append(url)
         
-        # Add base URL
         queue.append(base_url)
         
-        # Enhanced headers
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -379,15 +385,12 @@ class WebScraper:
                 break
             
             url = queue.popleft()
-            
-            # Normalize URL
             url = url.split("#")[0].split("?")[0].rstrip('/')
             
             if url in visited or not self.is_valid_url(url, base_domain):
                 continue
             
             try:
-                # Try to fetch page
                 response = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
                 
                 if response.status_code != 200:
@@ -395,7 +398,6 @@ class WebScraper:
                     self.debug_info.append(f"HTTP {response.status_code}: {url}")
                     continue
                 
-                # Success!
                 consecutive_failures = 0
                 successful_scrapes += 1
                 visited.add(url)
@@ -403,13 +405,11 @@ class WebScraper:
                 if progress_callback:
                     progress_callback(len(visited), max_pages, url)
                 
-                # Parse content
                 soup = BeautifulSoup(response.text, "html.parser")
                 content_data = self.extract_content_ultra_aggressive(soup, url)
                 
-                # ACCEPT ALMOST ANY CONTENT
                 content_length = len(content_data['main_content'])
-                if content_length > 20:  # ULTRA low threshold
+                if content_length > 20:
                     formatted = f"\n{'='*80}\n"
                     formatted += f"PAGE: {content_data['url']}\n"
                     formatted += f"TITLE: {content_data['title']}\n"
@@ -436,7 +436,6 @@ class WebScraper:
                     except:
                         pass
                 
-                # Polite delay
                 time.sleep(0.4)
             
             except requests.exceptions.Timeout:
@@ -532,15 +531,17 @@ class CompanyAI:
                 self.status["error"] = content
                 return False
             
-            if len(content) < 100:  # Down from 200
+            # CRITICAL FIX: Much more lenient content check
+            if len(content) < 100:
                 self.status["error"] = f"Content too short: {len(content)} chars. Debug: {'; '.join(scraper.debug_info[-5:])}"
                 return False
             
             self.company_data = company_info
             
+            # Step 2: Split content with better settings
             splitter = RecursiveCharacterTextSplitter(
-                chunk_size=800,  # Smaller chunks for better retrieval
-                chunk_overlap=200,  # More overlap
+                chunk_size=800,
+                chunk_overlap=200,
                 separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""],
                 length_function=len
             )
@@ -552,9 +553,9 @@ class CompanyAI:
                 return False
             
             # CRITICAL FIX: Accept shorter chunks
-            meaningful_chunks = [c.strip() for c in chunks if len(c.strip()) > 30]  # Down from 50
+            meaningful_chunks = [c.strip() for c in chunks if len(c.strip()) > 30]
             
-            if len(meaningful_chunks) < 2:  # Down from 3
+            if len(meaningful_chunks) < 2:
                 self.status["error"] = f"Not enough chunks: {len(meaningful_chunks)}. Total chunks: {len(chunks)}"
                 return False
             
@@ -578,7 +579,7 @@ class CompanyAI:
                             normalize_embeddings=True,
                             show_progress_bar=False,
                             convert_to_numpy=True,
-                            batch_size=32  # Added batch size
+                            batch_size=32
                         )
                         return embeddings.tolist()
                     except Exception as e:
@@ -596,7 +597,7 @@ class CompanyAI:
                         return embedding[0].tolist()
                     except Exception as e:
                         print(f"Query embedding error: {e}")
-                        return [0.0] * 384  # Return zero vector as fallback
+                        return [0.0] * 384
             
             embeddings = CustomEmbeddings(embedding_model)
             
@@ -627,7 +628,7 @@ class CompanyAI:
                 
                 self.retriever = vectorstore.as_retriever(
                     search_type="similarity",
-                    search_kwargs={"k": 6}  # Increased from 5
+                    search_kwargs={"k": 6}
                 )
                 
             except Exception as e:
@@ -778,7 +779,7 @@ class CompanyAI:
             return self.get_contact_info()
         
         # Check cache
-        cache_key = q_lower[:100]  # Limit cache key length
+        cache_key = q_lower[:100]
         if cache_key in self.cache:
             return self.cache[cache_key]
         
@@ -798,7 +799,7 @@ class CompanyAI:
             if not context_parts:
                 return "I found some information but couldn't extract the content properly. Please try rephrasing your question."
             
-            context = "\n\n".join(context_parts)[:5000]  # Increased limit
+            context = "\n\n".join(context_parts)[:5000]
             
             # Create enhanced prompt
             prompt = f"""You are a knowledgeable and friendly AI assistant for this company. Answer the user's question based ONLY on the provided context.
@@ -917,6 +918,11 @@ Answer:"""
         finally:
             db.close()
 
+
+# ============================================================================
+# DATABASE HELPER FUNCTIONS
+# ============================================================================
+
 def create_company(company_name: str, website_url: str, max_pages: int = 40) -> Optional[str]:
     """Create new company in database"""
     db = SessionLocal()
@@ -988,6 +994,11 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
         db.close()
 
 
+# ============================================================================
+# STREAMLIT UI - COMPLETE APPLICATION
+# ============================================================================
+
+# Page config
 st.set_page_config(
     page_title="Multi-Company AI Chatbot Generator",
     page_icon="🤖",
@@ -995,6 +1006,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Enhanced CSS
 st.markdown("""
 <style>
     .main { 
@@ -1109,7 +1121,12 @@ with st.sidebar:
             if st.button("💬 Back to Chat", use_container_width=True):
                 st.session_state.page = "chat"
                 st.rerun()
-                
+
+
+# ============================================================================
+# PAGE ROUTING
+# ============================================================================
+
 if st.session_state.page == "home":
     st.markdown("""
     <div class="header-container">
@@ -1251,6 +1268,8 @@ elif st.session_state.page == "create":
                         st.session_state.ai_instance = ai
                         st.session_state.page = "chat"
                         st.session_state.messages = []
+                        st.session_state.question_count = 0
+                        st.session_state.user_info_collected = False
                         st.rerun()
                     else:
                         update_company_after_scraping(slug, {}, "failed")
@@ -1318,4 +1337,227 @@ elif st.session_state.page == "list":
                             st.session_state.current_company = company.company_slug
                             st.session_state.page = "chat"
                             st.session_state.messages = []
-                            st.session_state.question
+                            st.session_state.question_count = 0
+                            st.session_state.user_info_collected = False
+                            st.session_state.ai_instance = None  # CRITICAL: Reset AI instance
+                            st.rerun()
+                    elif company.scraping_status == "failed":
+                        st.button("❌ Failed", key=f"fail_{company.id}", disabled=True)
+                    else:
+                        st.button("⏳ Processing", key=f"wait_{company.id}", disabled=True)
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+
+
+elif st.session_state.page == "chat":
+    # CRITICAL FIX: Proper validation and initialization
+    if not st.session_state.current_company:
+        st.warning("⚠️ No company selected. Please select a chatbot from the list.")
+        if st.button("📋 Go to Chatbot List"):
+            st.session_state.page = "list"
+            st.rerun()
+        st.stop()
+    
+    company = get_company_by_slug(st.session_state.current_company)
+    
+    if not company:
+        st.error("❌ Company not found in database!")
+        if st.button("📋 Back to List"):
+            st.session_state.page = "list"
+            st.rerun()
+        st.stop()
+    
+    if company.scraping_status != "completed":
+        st.error(f"⚠️ This chatbot is not ready yet. Status: {company.scraping_status}")
+        if st.button("📋 Back to List"):
+            st.session_state.page = "list"
+            st.rerun()
+        st.stop()
+    
+    # CRITICAL FIX: Initialize AI properly
+    if not st.session_state.ai_instance or \
+       st.session_state.ai_instance.company_slug != st.session_state.current_company:
+        
+        with st.spinner("🔄 Loading AI assistant..."):
+            ai = CompanyAI(st.session_state.current_company)
+            
+            load_success = ai.load_existing()
+            
+            if not load_success:
+                st.error("❌ Failed to load AI assistant!")
+                st.error(f"Error: {ai.status.get('error', 'Unknown error')}")
+                
+                with st.expander("🔧 Debug Information"):
+                    st.code(f"""
+Company Slug: {st.session_state.current_company}
+Chroma Directory: {get_chroma_directory(st.session_state.current_company)}
+Directory Exists: {os.path.exists(get_chroma_directory(st.session_state.current_company))}
+Status: {ai.status}
+                    """)
+                
+                st.warning("💡 **Possible Solutions:**")
+                st.markdown("""
+                - The chatbot data may have been deleted
+                - Try re-creating the chatbot
+                - Contact support if the issue persists
+                """)
+                
+                if st.button("🔄 Re-create This Chatbot"):
+                    st.session_state.page = "create"
+                    st.rerun()
+                
+                if st.button("📋 Back to List"):
+                    st.session_state.page = "list"
+                    st.rerun()
+                
+                st.stop()
+            
+            # Successfully loaded
+            st.session_state.ai_instance = ai
+            
+            # Load company data from database
+            try:
+                ai.company_data = {
+                    'emails': json.loads(company.emails) if company.emails else [],
+                    'phones': json.loads(company.phones) if company.phones else [],
+                    'address_india': company.address_india,
+                    'address_international': company.address_international
+                }
+            except Exception as e:
+                print(f"Error loading company data: {e}")
+                ai.company_data = {}
+    
+    # Display header
+    st.markdown(f"""
+    <div class="header-container">
+        <h1 class="header-title">💬 Chat with {company.company_name}</h1>
+        <p class="header-subtitle">AI Assistant powered by company website data</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Show helpful info
+    with st.expander("ℹ️ About This Chatbot"):
+        st.markdown(f"""
+        **Company:** {company.company_name}  
+        **Website:** [{company.website_url}]({company.website_url})  
+        **Pages Indexed:** {company.pages_scraped}  
+        **Last Updated:** {company.last_scraped.strftime('%Y-%m-%d %H:%M') if company.last_scraped else 'N/A'}
+        
+        This AI assistant has been trained on content from the company's website and can answer questions about:
+        - Company information and services
+        - Products and solutions
+        - Contact details
+        - And more!
+        """)
+    
+    # Display chat history
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    
+    # Chat input
+    if user_input := st.chat_input(f"Ask me anything about {company.company_name}..."):
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+        
+        # Increment question count
+        st.session_state.question_count += 1
+        
+        # Check if should show contact form (after 3 questions)
+        if st.session_state.question_count == 3 and not st.session_state.user_info_collected:
+            # Get AI response first
+            with st.chat_message("assistant"):
+                with st.spinner("🤔 Thinking..."):
+                    answer = st.session_state.ai_instance.ask(
+                        user_input,
+                        st.session_state.session_id
+                    )
+                st.markdown(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+            
+            # Show contact form
+            st.markdown("---")
+            st.markdown("### 📋 Help Us Serve You Better!")
+            st.info("💡 Share your contact details to receive personalized assistance and updates")
+            
+            with st.form("contact_form", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    name = st.text_input("Name *", placeholder="John Doe")
+                    email = st.text_input("Email *", placeholder="john@example.com")
+                with col2:
+                    phone = st.text_input("Phone *", placeholder="+1234567890")
+                    st.write("")  # Spacing
+                
+                submit_contact = st.form_submit_button("✅ Submit Details", use_container_width=True, type="primary")
+                
+                if submit_contact:
+                    if name and email and phone:
+                        db = SessionLocal()
+                        try:
+                            contact = UserContact(
+                                company_slug=st.session_state.current_company,
+                                name=name,
+                                email=email,
+                                phone=phone,
+                                session_id=st.session_state.session_id
+                            )
+                            db.add(contact)
+                            db.commit()
+                            
+                            st.session_state.user_info_collected = True
+                            st.success("✅ Thank you! Your details have been saved. Continue chatting...")
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error saving contact: {str(e)}")
+                            db.rollback()
+                        finally:
+                            db.close()
+                    else:
+                        st.error("❌ Please fill in all required fields")
+            
+            # Stop execution here to show the form
+            st.stop()
+        
+        # Normal AI response
+        with st.chat_message("assistant"):
+            with st.spinner("🤔 Thinking..."):
+                answer = st.session_state.ai_instance.ask(
+                    user_input,
+                    st.session_state.session_id
+                )
+            st.markdown(answer)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+    
+    # Sidebar info in chat page
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 💡 Quick Actions")
+        
+        if st.button("🔄 Reset Chat", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.question_count = 0
+            st.session_state.user_info_collected = False
+            st.session_state.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
+            st.success("Chat reset!")
+            time.sleep(0.5)
+            st.rerun()
+        
+        st.markdown("---")
+        st.markdown("### 📊 Chat Stats")
+        st.metric("Questions Asked", st.session_state.question_count)
+        st.metric("Messages", len(st.session_state.messages))
+
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; padding: 20px; color: white;'>
+    <strong>🤖 Multi-Company AI Chatbot Generator</strong><br>
+    Built with Streamlit • LangChain • ChromaDB • OpenRouter<br>
+    © 2025 All Rights Reserved
+</div>
+""", unsafe_allow_html=True)
