@@ -16,7 +16,7 @@ import json
 import time
 from typing import Optional, Dict, List, Tuple
 
-# FIXED: Compatible imports for all LangChain versions
+# Compatible imports for all LangChain versions
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
@@ -35,7 +35,6 @@ except ImportError:
     except ImportError:
         from langchain.embeddings import HuggingFaceEmbeddings
 
-# FIXED: Correct Document import
 try:
     from langchain_core.documents import Document
 except ImportError:
@@ -44,6 +43,7 @@ except ImportError:
     except ImportError:
         from langchain.schema import Document
 
+# Database setup
 DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -102,7 +102,7 @@ class UserContact(Base):
 
 Base.metadata.create_all(bind=engine)
 
-
+# API Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "google/gemini-2.0-flash-exp:free"
@@ -111,7 +111,6 @@ PRIORITY_PAGES = [
     "", "about", "services", "solutions", "products", "contact", "team",
     "careers", "about-us", "contact-us", "our-services", "home"
 ]
-
 
 
 def create_slug(company_name: str) -> str:
@@ -271,8 +270,8 @@ class WebScraper:
         
         return content_dict
     
-def scrape_website(self, base_url: str, max_pages: int = 40, 
-                      progress_callback=None) -> Tuple[List[Document], Dict]:
+    def scrape_website(self, base_url: str, max_pages: int = 40, 
+                       progress_callback=None) -> Tuple[List[Document], Dict]:
         """Scrape website and return Documents"""
         visited = set()
         queue = deque()
@@ -419,10 +418,8 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
         return db.query(Company).filter(Company.company_slug == slug).first()
     finally:
         db.close()
-
 """
-MULTI-COMPANY AI CHATBOT - PART 2: AI ENGINE + UI
-Fixed duplicate element IDs
+MULTI-COMPANY AI CHATBOT - AI ENGINE + STREAMLIT UI
 """
 
 import streamlit as st
@@ -434,7 +431,7 @@ from typing import List
 import shutil
 import hashlib
 
-# FIXED: Compatible imports for all LangChain versions
+# Compatible imports
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
@@ -453,7 +450,6 @@ except ImportError:
     except ImportError:
         from langchain.embeddings import HuggingFaceEmbeddings
 
-# FIXED: Correct Document import
 try:
     from langchain_core.documents import Document
 except ImportError:
@@ -467,7 +463,7 @@ try:
 except ImportError:
     from langchain.prompts import PromptTemplate
 
-# Import from main.py (Part 1)
+# Import from main.py
 from main import (
     Company, ChatHistory, UserContact,
     WebScraper, create_company, update_company_after_scraping,
@@ -475,10 +471,6 @@ from main import (
     SessionLocal, OPENROUTER_API_KEY, OPENROUTER_API_BASE, MODEL
 )
 
-
-# ============================================================================
-# AI ENGINE WITH RAG
-# ============================================================================
 
 class CompanyAI:
     """AI Engine with RAG for answering questions"""
@@ -518,9 +510,8 @@ ANSWER (2-5 sentences):"""
     def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
         """Initialize by scraping and creating vector store"""
         try:
-            # Scrape website
             if progress_callback:
-                progress_callback(0, max_pages, "Starting...")
+                progress_callback(0, max_pages, "Starting scraper...")
             
             scraper = WebScraper(self.company_slug)
             documents, company_info = scraper.scrape_website(
@@ -535,7 +526,9 @@ ANSWER (2-5 sentences):"""
             
             self.company_data = company_info
             
-            # Split documents
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "Processing documents...")
+            
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1000,
                 chunk_overlap=200,
@@ -549,20 +542,24 @@ ANSWER (2-5 sentences):"""
                 self.status["error"] = f"Not enough chunks: {len(split_docs)}"
                 return False
             
-            # Create embeddings (using smaller model for memory efficiency)
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "Creating embeddings...")
+            
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={'device': 'cpu'},
                 encode_kwargs={'normalize_embeddings': True}
             )
             
-            # Create vector store
             chroma_dir = get_chroma_directory(self.company_slug)
             
             if os.path.exists(chroma_dir):
                 shutil.rmtree(chroma_dir)
             
             os.makedirs(chroma_dir, exist_ok=True)
+            
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "Building vector database...")
             
             self.vectorstore = Chroma.from_documents(
                 documents=split_docs,
@@ -574,7 +571,6 @@ ANSWER (2-5 sentences):"""
             if self.vectorstore._collection.count() == 0:
                 raise Exception("Vectorstore is empty")
             
-            # Create retriever
             self.retriever = self.vectorstore.as_retriever(
                 search_type="mmr",
                 search_kwargs={
@@ -587,7 +583,7 @@ ANSWER (2-5 sentences):"""
             self.status["ready"] = True
             
             if progress_callback:
-                progress_callback(max_pages, max_pages, "✅ Ready!")
+                progress_callback(max_pages, max_pages, "✅ Chatbot Ready!")
             
             return True
         
@@ -604,7 +600,7 @@ ANSWER (2-5 sentences):"""
             chroma_dir = get_chroma_directory(self.company_slug)
             
             if not os.path.exists(chroma_dir):
-                self.status["error"] = "Not found"
+                self.status["error"] = "Chatbot data not found"
                 return False
             
             self.embeddings = HuggingFaceEmbeddings(
@@ -632,7 +628,6 @@ ANSWER (2-5 sentences):"""
                 }
             )
             
-            # Load company data
             company = get_company_by_slug(self.company_slug)
             if company:
                 try:
@@ -682,26 +677,22 @@ ANSWER (2-5 sentences):"""
         
         q_lower = question.lower().strip()
         
-        # Handle greetings
         greetings = ["hi", "hello", "hey", "hai"]
         if q_lower in greetings or len(q_lower) < 5:
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "our company"
             return f"Hello! 👋 I'm here to answer questions about {company_name}. How can I help you today?"
         
-        # Handle contact requests
         contact_keywords = ["email", "contact", "phone", "address", "office", "location", "reach"]
         if any(keyword in q_lower for keyword in contact_keywords):
             return self.get_contact_info()
         
         try:
-            # Retrieve relevant documents
             relevant_docs = self.retriever.get_relevant_documents(question)
             
             if not relevant_docs or len(relevant_docs) == 0:
                 return "I couldn't find specific information about that. Could you rephrase your question?"
             
-            # Build context
             context_parts = []
             for doc in relevant_docs[:5]:
                 if hasattr(doc, 'page_content') and doc.page_content:
@@ -716,7 +707,6 @@ ANSWER (2-5 sentences):"""
             
             context = "\n\n---\n\n".join(context_parts)
             
-            # Format chat history
             history_text = ""
             if chat_history:
                 history_text = "\n".join([
@@ -724,11 +714,9 @@ ANSWER (2-5 sentences):"""
                     for msg in chat_history[-3:]
                 ])
             
-            # Get company name
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
             
-            # Build prompt
             prompt = self.qa_prompt.format(
                 company_name=company_name,
                 context=context[:5000],
@@ -736,7 +724,6 @@ ANSWER (2-5 sentences):"""
                 question=question
             )
             
-            # Call LLM
             answer = self._call_llm(prompt)
             
             if answer:
@@ -823,7 +810,7 @@ ANSWER (2-5 sentences):"""
 
 
 # ============================================================================
-# STREAMLIT UI - FIXED WITH UNIQUE KEYS
+# STREAMLIT UI
 # ============================================================================
 
 st.set_page_config(
@@ -832,7 +819,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Minimal CSS for better performance
 st.markdown("""
 <style>
     .main { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
@@ -843,17 +829,18 @@ st.markdown("""
         margin-bottom: 2rem;
         text-align: center;
     }
-    .header-title { color: white; font-size: 2.5rem; font-weight: bold; }
+    .header-title { color: white; font-size: 2.5rem; font-weight: bold; margin: 0; }
     .company-card {
         background: white;
         padding: 1.5rem;
         border-radius: 10px;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Session state
+# Session state initialization
 if "page" not in st.session_state:
     st.session_state.page = "home"
 if "current_company" not in st.session_state:
@@ -867,7 +854,7 @@ if "chat_history" not in st.session_state:
 if "session_id" not in st.session_state:
     st.session_state.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
 
-# Sidebar - FIXED: Added unique keys
+# Sidebar Navigation
 with st.sidebar:
     st.markdown("### 🧭 Navigation")
     
@@ -882,13 +869,16 @@ with st.sidebar:
     if st.button("📋 View All", use_container_width=True, key="nav_list"):
         st.session_state.page = "list"
         st.rerun()
+    
+    st.markdown("---")
+    st.caption("💡 Powered by AI & RAG")
 
-# Pages
+# HOME PAGE
 if st.session_state.page == "home":
     st.markdown("""
     <div class="header-container">
         <h1 class="header-title">🤖 AI Chatbot Generator</h1>
-        <p style="color: white; font-size: 1.1rem;">Create intelligent chatbots from any website!</p>
+        <p style="color: white; font-size: 1.1rem; margin-top: 1rem;">Create intelligent chatbots from any website in minutes!</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -904,8 +894,9 @@ if st.session_state.page == "home":
             st.session_state.page = "list"
             st.rerun()
     
-    st.info("💡 **How it works:** Enter a company name and website URL. The AI will scrape the website and create an intelligent chatbot!")
+    st.info("💡 **How it works:** Enter a company name and website URL. The AI will scrape the website, extract information, and create an intelligent chatbot that can answer questions about the company!")
 
+# CREATE PAGE
 elif st.session_state.page == "create":
     st.markdown("""
     <div class="header-container">
@@ -918,6 +909,8 @@ elif st.session_state.page == "create":
         url = st.text_input("Website URL *", placeholder="e.g., https://example.com", key="form_url")
         pages = st.slider("Max Pages to Scrape", 10, 60, 40, 10, key="form_pages")
         
+        st.caption("⚠️ This process may take 2-5 minutes depending on website size")
+        
         submitted = st.form_submit_button("🚀 Create Chatbot", type="primary", use_container_width=True)
         
         if submitted:
@@ -925,22 +918,27 @@ elif st.session_state.page == "create":
                 if not url.startswith('http'):
                     url = 'https://' + url
                 
-                slug = create_company(name, url, pages)
+                with st.spinner("Creating company record..."):
+                    slug = create_company(name, url, pages)
                 
                 if slug:
                     st.success(f"✅ Created: {name}")
                     
-                    prog = st.progress(0, text="Initializing...")
-                    status = st.empty()
+                    prog_bar = st.progress(0, text="Initializing scraper...")
+                    status_text = st.empty()
                     
                     def progress_cb(current, total, url_text):
-                        prog.progress(min(current/total, 1.0), text=f"📄 Scraped {current}/{total} pages")
-                        status.caption(f"Current: {url_text[:50]}...")
+                        progress = min(current / total, 1.0)
+                        prog_bar.progress(progress, text=f"📄 Scraped {current}/{total} pages")
+                        status_text.caption(f"Current: {url_text[:60]}...")
                     
                     ai = CompanyAI(slug)
-                    if ai.initialize(url, pages, progress_cb):
+                    success = ai.initialize(url, pages, progress_cb)
+                    
+                    if success:
                         update_company_after_scraping(slug, ai.company_data, "completed")
-                        st.success("✅ Chatbot is ready!")
+                        prog_bar.progress(1.0, text="✅ Chatbot is ready!")
+                        st.success("🎉 Chatbot created successfully!")
                         st.balloons()
                         time.sleep(2)
                         
@@ -951,13 +949,15 @@ elif st.session_state.page == "create":
                         st.session_state.page = "chat"
                         st.rerun()
                     else:
-                        st.error(f"❌ Failed: {ai.status.get('error', 'Unknown error')}")
+                        error_msg = ai.status.get('error', 'Unknown error')
+                        st.error(f"❌ Failed to create chatbot: {error_msg}")
                         update_company_after_scraping(slug, {}, "failed")
                 else:
-                    st.error("⚠️ Company already exists!")
+                    st.error("⚠️ Company already exists with this name!")
             else:
-                st.warning("⚠️ Please fill in all fields")
+                st.warning("⚠️ Please fill in all required fields")
 
+# LIST PAGE
 elif st.session_state.page == "list":
     st.markdown("""
     <div class="header-container">
@@ -968,7 +968,10 @@ elif st.session_state.page == "list":
     companies = get_all_companies()
     
     if not companies:
-        st.info("No chatbots yet. Create your first one!")
+        st.info("No chatbots created yet. Create your first one!")
+        if st.button("➕ Create First Chatbot", type="primary"):
+            st.session_state.page = "create"
+            st.rerun()
     else:
         for c in companies:
             st.markdown('<div class="company-card">', unsafe_allow_html=True)
@@ -977,7 +980,7 @@ elif st.session_state.page == "list":
             with col1:
                 st.markdown(f"### {c.company_name}")
                 st.caption(f"🌐 {c.website_url}")
-                st.caption(f"📄 {c.pages_scraped} pages | Status: {c.scraping_status}")
+                st.caption(f"📄 {c.pages_scraped} pages scraped")
             
             with col2:
                 if c.scraping_status == "completed":
@@ -989,8 +992,7 @@ elif st.session_state.page == "list":
             
             with col3:
                 if c.scraping_status == "completed":
-                    # FIXED: Added unique key using company ID
-                    if st.button("💬 Chat", key=f"chat_btn_{c.id}", use_container_width=True):
+                    if st.button("💬 Chat", key=f"chat_{c.id}", use_container_width=True):
                         st.session_state.current_company = c.company_slug
                         st.session_state.page = "chat"
                         st.session_state.ai_instance = None
@@ -1000,29 +1002,39 @@ elif st.session_state.page == "list":
             
             st.markdown('</div>', unsafe_allow_html=True)
 
+# CHAT PAGE
 elif st.session_state.page == "chat":
     if not st.session_state.current_company:
         st.error("No company selected")
+        if st.button("← Go Back"):
+            st.session_state.page = "list"
+            st.rerun()
         st.stop()
     
     c = get_company_by_slug(st.session_state.current_company)
     
     if not c:
         st.error("Company not found")
+        if st.button("← Go Back"):
+            st.session_state.page = "list"
+            st.rerun()
         st.stop()
     
     if not st.session_state.ai_instance:
         with st.spinner("Loading chatbot..."):
             ai = CompanyAI(st.session_state.current_company)
             if not ai.load_existing():
-                st.error(f"Failed to load: {ai.status.get('error', 'Unknown error')}")
+                st.error(f"Failed to load chatbot: {ai.status.get('error', 'Unknown error')}")
+                if st.button("← Go Back"):
+                    st.session_state.page = "list"
+                    st.rerun()
                 st.stop()
             st.session_state.ai_instance = ai
     
     st.markdown(f"""
     <div class="header-container">
-        <h1 class="header-title">💬 {c.company_name}</h1>
-        <p style="color: white;">Ask me anything about the company!</p>
+        <h1 class="header-title">💬 Chat with {c.company_name}</h1>
+        <p style="color: white; margin-top: 0.5rem;">Ask me anything about the company!</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1031,7 +1043,7 @@ elif st.session_state.page == "chat":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
     
-    # Chat input - FIXED: Added unique key
+    # Chat input
     if prompt := st.chat_input("Ask a question...", key="chat_input_main"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         
@@ -1049,3 +1061,12 @@ elif st.session_state.page == "chat":
         
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.session_state.chat_history.append({"question": prompt, "answer": answer})
+        
+        st.rerun()
+    
+    # Clear chat button
+    if len(st.session_state.messages) > 0:
+        if st.button("🗑️ Clear Chat", key="clear_chat"):
+            st.session_state.messages = []
+            st.session_state.chat_history = []
+            st.rerun()
