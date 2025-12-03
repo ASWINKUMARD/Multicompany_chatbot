@@ -1048,7 +1048,7 @@ elif st.session_state.page == "chat":
         
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.session_state.chat_history.append({"question": prompt, "answer": answer})
-                update_company_after_scraping(slug, {}, "failed")
+        update_company_after_scraping(slug, {}, "failed")
                 else:
                     st.error("⚠️ Company already exists!")
             else:
