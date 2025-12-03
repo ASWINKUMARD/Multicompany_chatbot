@@ -1,6 +1,6 @@
 """
-MULTI-COMPANY AI CHATBOT - PART 1: BACKEND
-Fixed RAG implementation with proper LangChain integration
+MULTI-COMPANY AI CHATBOT - PART 1: BACKEND (FIXED IMPORTS)
+Compatible with latest LangChain versions
 """
 
 __import__('pysqlite3')
@@ -21,15 +21,25 @@ import json
 import time
 from typing import Optional, Dict, List, Tuple
 
-# LangChain imports - PROPER SETUP
-from langchain_community.text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from langchain_community.llms import OpenAI
-from langchain.prompts import PromptTemplate
-from langchain.chains.question_answering import load_qa_chain
+# FIXED LangChain imports - Compatible with all versions
+try:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+except ImportError:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+try:
+    from langchain.vectorstores import Chroma
+except ImportError:
+    from langchain_community.vectorstores import Chroma
+
+try:
+    from langchain.embeddings import HuggingFaceEmbeddings
+except ImportError:
+    try:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+    except ImportError:
+        from langchain_huggingface import HuggingFaceEmbeddings
+
 from langchain.schema import Document
 
 # ============================================================================
@@ -473,8 +483,8 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
     finally:
         db.close()
 """
-MULTI-COMPANY AI CHATBOT - PART 2: AI ENGINE + STREAMLIT UI
-Fixed RAG with proper answer generation
+MULTI-COMPANY AI CHATBOT - PART 2: AI ENGINE + UI (FIXED IMPORTS)
+Compatible with all LangChain versions
 """
 
 import streamlit as st
@@ -484,21 +494,41 @@ import json
 import os
 from typing import List
 import shutil
+import hashlib
 
-# Import Part 1 components
-from part1_backend import (
-    Company, ChatHistory, UserContact, ScrapedContent,
-    WebScraper, create_company, update_company_after_scraping,
-    get_all_companies, get_company_by_slug, get_chroma_directory,
-    SessionLocal, OPENROUTER_API_KEY, OPENROUTER_API_BASE, MODEL
-)
+# FIXED LangChain imports
+try:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+except ImportError:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# LangChain imports
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+try:
+    from langchain.vectorstores import Chroma
+except ImportError:
+    from langchain_community.vectorstores import Chroma
+
+try:
+    from langchain.embeddings import HuggingFaceEmbeddings
+except ImportError:
+    try:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+    except ImportError:
+        from langchain_huggingface import HuggingFaceEmbeddings
+
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate
+
+# Import from Part 1 - ADJUST THIS PATH IF NEEDED
+try:
+    from part1_backend import (
+        Company, ChatHistory, UserContact, ScrapedContent,
+        WebScraper, create_company, update_company_after_scraping,
+        get_all_companies, get_company_by_slug, get_chroma_directory,
+        SessionLocal, OPENROUTER_API_KEY, OPENROUTER_API_BASE, MODEL
+    )
+except ImportError:
+    st.error("⚠️ Cannot find 'part1_backend.py'. Make sure it's in the same directory!")
+    st.stop()
 
 
 # ============================================================================
@@ -522,7 +552,7 @@ class CompanyAI:
 CONTEXT FROM COMPANY WEBSITE:
 {context}
 
-CHAT HISTORY:
+RECENT CONVERSATION:
 {chat_history}
 
 USER QUESTION: {question}
@@ -530,12 +560,12 @@ USER QUESTION: {question}
 INSTRUCTIONS:
 1. Answer the question using ONLY information from the context above
 2. Be specific, detailed, and helpful
-3. If you cannot find the answer in the context, say "I don't have specific information about that in our knowledge base, but I can help you get in touch with our team."
+3. If you cannot find the answer in the context, say "I don't have specific information about that in our knowledge base. Let me connect you with our team - here's how to reach us: [provide contact details if available]"
 4. Be conversational and friendly
 5. Include relevant details like services, products, or contact information when appropriate
-6. If the question is about contact details, provide all available information
+6. For contact requests, provide ALL available contact information
 
-ANSWER (2-5 sentences, be specific and helpful):"""
+ANSWER (Be specific and helpful, 2-5 sentences):"""
 
         self.qa_prompt = PromptTemplate(
             template=self.qa_template,
@@ -577,7 +607,7 @@ ANSWER (2-5 sentences, be specific and helpful):"""
                 self.status["error"] = f"Not enough chunks created: {len(split_docs)}"
                 return False
             
-            # Step 3: Create embeddings with better model
+            # Step 3: Create embeddings
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={'device': 'cpu'},
@@ -607,11 +637,11 @@ ANSWER (2-5 sentences, be specific and helpful):"""
             
             # Create retriever with better search
             self.retriever = self.vectorstore.as_retriever(
-                search_type="mmr",  # Maximum Marginal Relevance for diverse results
+                search_type="mmr",  # Maximum Marginal Relevance
                 search_kwargs={
-                    "k": 8,  # Retrieve more documents
-                    "fetch_k": 20,  # Fetch more for MMR
-                    "lambda_mult": 0.7  # Balance between relevance and diversity
+                    "k": 8,
+                    "fetch_k": 20,
+                    "lambda_mult": 0.7
                 }
             )
             
@@ -735,9 +765,8 @@ ANSWER (2-5 sentences, be specific and helpful):"""
             
             # Build context from documents
             context_parts = []
-            for doc in relevant_docs[:6]:  # Use top 6 documents
+            for doc in relevant_docs[:6]:
                 if hasattr(doc, 'page_content') and doc.page_content:
-                    # Add source info for better context
                     source = doc.metadata.get('source', 'unknown')
                     title = doc.metadata.get('title', '')
                     
@@ -754,26 +783,25 @@ ANSWER (2-5 sentences, be specific and helpful):"""
             if chat_history:
                 history_text = "\n".join([
                     f"User: {msg['question']}\nAssistant: {msg['answer']}" 
-                    for msg in chat_history[-3:]  # Last 3 exchanges
+                    for msg in chat_history[-3:]
                 ])
             
             # Get company name
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
             
-            # Build enhanced prompt
+            # Build prompt
             prompt = self.qa_prompt.format(
                 company_name=company_name,
-                context=context[:6000],  # Limit context size
+                context=context[:6000],
                 chat_history=history_text,
                 question=question
             )
             
-            # Call LLM API
-            answer = self._call_llm(prompt, question, context)
+            # Call LLM
+            answer = self._call_llm(prompt)
             
             if answer:
-                # Save to database
                 self.save_chat(question, answer, session_id)
                 return answer
             else:
@@ -781,14 +809,13 @@ ANSWER (2-5 sentences, be specific and helpful):"""
         
         except Exception as e:
             print(f"Error in ask(): {e}")
-            return "An error occurred while processing your question. Please try again."
+            return "An error occurred. Please try again."
     
-    def _call_llm(self, prompt: str, question: str, context: str, max_retries: int = 2) -> str:
-        """Call LLM API with retry logic"""
+    def _call_llm(self, prompt: str, max_retries: int = 2) -> str:
+        """Call LLM API"""
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://chatbot.com",
         }
         
         payload = {
@@ -796,7 +823,7 @@ ANSWER (2-5 sentences, be specific and helpful):"""
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a helpful AI assistant. Answer questions accurately based on the provided context. Be specific, friendly, and professional."
+                    "content": "You are a helpful AI assistant. Answer accurately based on context. Be specific, friendly, and professional."
                 },
                 {
                     "role": "user",
@@ -805,7 +832,6 @@ ANSWER (2-5 sentences, be specific and helpful):"""
             ],
             "temperature": 0.5,
             "max_tokens": 800,
-            "top_p": 0.9
         }
         
         for attempt in range(max_retries):
@@ -830,10 +856,9 @@ ANSWER (2-5 sentences, be specific and helpful):"""
                     if attempt < max_retries - 1:
                         time.sleep(2)
                         continue
-                    return None
             
             except Exception as e:
-                print(f"LLM call error (attempt {attempt + 1}): {e}")
+                print(f"LLM error: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(1)
                     continue
@@ -883,7 +908,7 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         text-align: center;
     }
-    .header-title { color: white; font-size: 2.5rem; font-weight: bold; margin: 0; }
+    .header-title { color: white; font-size: 2.5rem; font-weight: bold; }
     .header-subtitle { color: rgba(255,255,255,0.9); font-size: 1.1rem; margin-top: 0.5rem; }
     .company-card {
         background: white;
@@ -892,13 +917,10 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin: 1rem 0;
     }
-    .status-completed { background: #10b981; color: white; padding: 0.3rem 0.8rem; border-radius: 15px; }
-    .status-pending { background: #6b7280; color: white; padding: 0.3rem 0.8rem; border-radius: 15px; }
-    .status-failed { background: #ef4444; color: white; padding: 0.3rem 0.8rem; border-radius: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Session state
 if "page" not in st.session_state:
     st.session_state.page = "home"
 if "current_company" not in st.session_state:
@@ -909,6 +931,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
 
 # Sidebar
 with st.sidebar:
@@ -918,76 +942,67 @@ with st.sidebar:
         st.session_state.page = "home"
         st.rerun()
     
-    if st.button("➕ Create Chatbot", use_container_width=True):
+    if st.button("➕ Create", use_container_width=True):
         st.session_state.page = "create"
         st.rerun()
     
-    if st.button("📋 All Chatbots", use_container_width=True):
+    if st.button("📋 List", use_container_width=True):
         st.session_state.page = "list"
         st.rerun()
 
-# Page routing
+# Pages
 if st.session_state.page == "home":
     st.markdown("""
     <div class="header-container">
         <h1 class="header-title">🤖 AI Chatbot Generator</h1>
-        <p class="header-subtitle">Create intelligent chatbots in minutes!</p>
+        <p class="header-subtitle">Create intelligent chatbots instantly!</p>
     </div>
     """, unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("➕ Create New Chatbot", use_container_width=True, type="primary"):
+        if st.button("➕ Create New", use_container_width=True, type="primary"):
             st.session_state.page = "create"
             st.rerun()
     
     with col2:
-        if st.button("📋 View Chatbots", use_container_width=True):
+        if st.button("📋 View All", use_container_width=True):
             st.session_state.page = "list"
             st.rerun()
 
 elif st.session_state.page == "create":
     st.markdown("""
     <div class="header-container">
-        <h1 class="header-title">➕ Create New Chatbot</h1>
+        <h1 class="header-title">➕ Create Chatbot</h1>
     </div>
     """, unsafe_allow_html=True)
     
     with st.form("create_form"):
-        company_name = st.text_input("Company Name *", placeholder="Acme Corp")
-        website_url = st.text_input("Website URL *", placeholder="https://example.com")
-        max_pages = st.slider("Pages to Scrape", 10, 80, 40, 10)
+        name = st.text_input("Company Name *")
+        url = st.text_input("Website URL *")
+        pages = st.slider("Pages", 10, 80, 40, 10)
         
-        submit = st.form_submit_button("🚀 Create", use_container_width=True, type="primary")
-        
-        if submit:
-            if not company_name or not website_url:
-                st.error("Fill all fields!")
-            else:
-                if not website_url.startswith('http'):
-                    website_url = 'https://' + website_url
+        if st.form_submit_button("🚀 Create", type="primary"):
+            if name and url:
+                if not url.startswith('http'):
+                    url = 'https://' + url
                 
-                slug = create_company(company_name, website_url, max_pages)
+                slug = create_company(name, url, pages)
                 
-                if not slug:
-                    st.error("Company already exists!")
-                else:
-                    st.success(f"✅ Created: {company_name}")
+                if slug:
+                    st.success(f"✅ {name}")
                     
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                    prog = st.progress(0)
+                    txt = st.empty()
                     
-                    def progress_callback(current, total, url):
-                        progress_bar.progress(min(current / total, 1.0))
-                        status_text.text(f"📄 Page {current}/{total}")
+                    def cb(c, t, u):
+                        prog.progress(min(c/t, 1.0))
+                        txt.text(f"📄 {c}/{t}")
                     
                     ai = CompanyAI(slug)
-                    success = ai.initialize(website_url, max_pages, progress_callback)
-                    
-                    if success:
+                    if ai.initialize(url, pages, cb):
                         update_company_after_scraping(slug, ai.company_data, "completed")
-                        progress_bar.progress(1.0)
                         st.success("✅ Ready!")
                         st.balloons()
                         time.sleep(2)
@@ -995,14 +1010,11 @@ elif st.session_state.page == "create":
                         st.session_state.current_company = slug
                         st.session_state.ai_instance = ai
                         st.session_state.page = "chat"
-                        st.session_state.messages = []
-                        st.session_state.chat_history = []
                         st.rerun()
                     else:
-                        update_company_after_scraping(slug, {}, "failed")
-                        st.error("❌ Initialization failed")
-                        with st.expander("Error Details"):
-                            st.code(ai.status.get('error', 'Unknown'))
+                        st.error("Failed")
+                else:
+                    st.error("Exists!")
 
 elif st.session_state.page == "list":
     st.markdown("""
@@ -1013,77 +1025,62 @@ elif st.session_state.page == "list":
     
     companies = get_all_companies()
     
-    if not companies:
-        st.info("No chatbots yet. Create one!")
-    else:
-        for company in companies:
-            st.markdown('<div class="company-card">', unsafe_allow_html=True)
-            col1, col2, col3 = st.columns([3, 2, 2])
-            
-            with col1:
-                st.markdown(f"### {company.company_name}")
-                st.caption(f"🌐 {company.website_url}")
-            
-            with col2:
-                st.markdown(f'<span class="status-{company.scraping_status}">{company.scraping_status.upper()}</span>', unsafe_allow_html=True)
-            
-            with col3:
-                if company.scraping_status == "completed":
-                    if st.button("💬 Chat", key=f"chat_{company.id}", type="primary"):
-                        st.session_state.current_company = company.company_slug
-                        st.session_state.page = "chat"
-                        st.session_state.messages = []
-                        st.session_state.chat_history = []
-                        st.session_state.ai_instance = None
-                        st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+    for c in companies:
+        st.markdown('<div class="company-card">', unsafe_allow_html=True)
+        col1, col2 = st.columns([4, 1])
+        
+        with col1:
+            st.markdown(f"### {c.company_name}")
+            st.caption(c.website_url)
+        
+        with col2:
+            if c.scraping_status == "completed":
+                if st.button("💬", key=f"c{c.id}"):
+                    st.session_state.current_company = c.company_slug
+                    st.session_state.page = "chat"
+                    st.session_state.ai_instance = None
+                    st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.page == "chat":
     if not st.session_state.current_company:
-        st.warning("No company selected")
         st.stop()
     
-    company = get_company_by_slug(st.session_state.current_company)
+    c = get_company_by_slug(st.session_state.current_company)
     
-    if not company or company.scraping_status != "completed":
-        st.error("Chatbot not ready")
-        st.stop()
-    
-    # Load AI
     if not st.session_state.ai_instance:
-        with st.spinner("Loading AI..."):
+        with st.spinner("Loading..."):
             ai = CompanyAI(st.session_state.current_company)
             if not ai.load_existing():
-                st.error("Failed to load AI")
+                st.error("Failed to load")
                 st.stop()
             st.session_state.ai_instance = ai
     
     st.markdown(f"""
     <div class="header-container">
-        <h1 class="header-title">💬 Chat with {company.company_name}</h1>
+        <h1 class="header-title">💬 {c.company_name}</h1>
     </div>
     """, unsafe_allow_html=True)
     
-    # Display messages
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
     
-    # Chat input
-    if user_input := st.chat_input("Ask anything..."):
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    if inp := st.chat_input("Ask..."):
+        st.session_state.messages.append({"role": "user", "content": inp})
         
         with st.chat_message("user"):
-            st.markdown(user_input)
+            st.markdown(inp)
         
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                answer = st.session_state.ai_instance.ask(
-                    user_input,
-                    st.session_state.chat_history
+            with st.spinner("..."):
+                ans = st.session_state.ai_instance.ask(
+                    inp,
+                    st.session_state.chat_history,
+                    st.session_state.session_id
                 )
-            st.markdown(answer)
+            st.markdown(ans)
         
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-        st.session_state.chat_history.append({"question": user_input, "answer": answer})
+        st.session_state.messages.append({"role": "assistant", "content": ans})
+        st.session_state.chat_history.append({"question": inp, "answer": ans})
