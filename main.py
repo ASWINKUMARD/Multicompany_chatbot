@@ -216,50 +216,64 @@ class WebScraper:
             return False
     
     def extract_content(self, soup: BeautifulSoup, url: str) -> Dict:
-        """Extract content from page"""
+        """Extract content from page - IMPROVED"""
         content_dict = {'url': url, 'title': '', 'content': ''}
         
         try:
+            # Get title
             if soup.find('title'):
-                content_dict['title'] = soup.find('title').get_text(strip=True)[:200]  # CHANGED: Added limit
+                content_dict['title'] = soup.find('title').get_text(strip=True)[:200]
             
+            # Get meta description
             meta_desc = soup.find('meta', attrs={"name": "description"})
             if meta_desc and meta_desc.get("content"):
                 content_dict['content'] += meta_desc["content"] + "\n\n"
             
+            # Extract contact info from full text BEFORE removing tags
             full_text = soup.get_text(separator="\n", strip=True)
             self.extract_contact_info(full_text)
             
-            for tag in soup(['script', 'style', 'iframe', 'nav', 'footer', 'header']):
+            # Remove unwanted tags
+            for tag in soup(['script', 'style', 'iframe', 'nav', 'footer', 'header', 'aside', 'noscript']):
                 tag.decompose()
             
-            main_selectors = ["main", "article", "[role='main']", ".content", "#content"]
+            # Try multiple extraction strategies
             texts = []
             
+            # Strategy 1: Main content areas
+            main_selectors = ["main", "article", "[role='main']", ".content", "#content", ".main-content", "#main"]
             for selector in main_selectors:
                 elements = soup.select(selector)
                 for elem in elements:
                     text = elem.get_text(separator="\n", strip=True)
                     if len(text) > 100:
                         texts.append(text)
+                        print(f"Found content in {selector}: {len(text)} chars")
             
-            for tag_name in ['h1', 'h2', 'h3', 'p']:
-                for tag in soup.find_all(tag_name):
-                    text = tag.get_text(strip=True)
-                    if len(text) > 20:
-                        texts.append(text)
+            # Strategy 2: Headings and paragraphs
+            if len(texts) == 0:
+                print("No main content found, extracting headings and paragraphs...")
+                for tag_name in ['h1', 'h2', 'h3', 'h4', 'p', 'li', 'div']:
+                    for tag in soup.find_all(tag_name):
+                        text = tag.get_text(strip=True)
+                        if len(text) > 20:
+                            texts.append(text)
             
+            # Strategy 3: Body fallback
             if len(texts) < 5:
+                print("Limited content, using body fallback...")
                 body = soup.find('body')
                 if body:
                     text = body.get_text(separator="\n", strip=True)
-                    if text:
+                    if text and len(text) > 100:
                         texts.append(text)
             
+            # Process and clean content
             if texts:
                 combined = "\n".join(texts)
                 lines = [self.clean_text(line) for line in combined.split("\n") if len(line.strip()) > 15]
                 
+                # Deduplicate while preserving order
                 seen = set()
                 unique_lines = []
                 for line in lines:
@@ -268,44 +282,82 @@ class WebScraper:
                         seen.add(line_lower)
                         unique_lines.append(line)
                 
-                content_dict['content'] = "\n".join(unique_lines)
+                content_dict['content'] += "\n".join(unique_lines)
+                print(f"Extracted {len(unique_lines)} unique lines from {url}")
+            else:
+                print(f"WARNING: No content extracted from {url}")
         
         except Exception as e:
+            print(f"Extract error for {url}: {str(e)}")
             self.debug_info.append(f"Error {url}: {str(e)[:50]}")
         
         return content_dict
     
     def scrape_website(self, base_url: str, max_pages: int = 40, 
                        progress_callback=None) -> Tuple[List[Document], Dict]:
-        """Scrape website and return Documents"""
+        """Scrape website and return Documents - IMPROVED"""
         visited = set()
         queue = deque()
-        base_domain = urlparse(base_url).netloc
         
-        base_url = base_url.rstrip('/') + '/'
+        # Parse and validate base URL
+        try:
+            parsed = urlparse(base_url)
+            base_domain = parsed.netloc
+            if not base_domain:
+                raise Exception(f"Invalid URL: {base_url}")
+            print(f"Starting scrape of domain: {base_domain}")
+        except Exception as e:
+            raise Exception(f"URL parsing error: {str(e)}")
         
+        # Normalize base URL
+        if not base_url.endswith('/'):
+            base_url = base_url + '/'
+        
+        # Add priority pages
+        queue.append(base_url)  # Always start with base URL
         for page in PRIORITY_PAGES:
-            for url in [urljoin(base_url, page), urljoin(base_url, page + '/')]:
+            if page:  # Skip empty string
+                url = urljoin(base_url, page)
                 if url not in queue:
                     queue.append(url)
         
+        print(f"Initial queue size: {len(queue)}")
+        
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive"
         }
         
         documents = []
+        failed_urls = []
         
         while queue and len(visited) < max_pages:
             url = queue.popleft()
+            
+            # Normalize URL
             url = url.split("#")[0].split("?")[0].rstrip('/')
             
             if url in visited or not self.is_valid_url(url, base_domain):
                 continue
             
             try:
-                response = requests.get(url, headers=headers, timeout=20)
+                print(f"\nScraping: {url}")
+                response = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+                
+                print(f"Status: {response.status_code}")
                 
                 if response.status_code != 200:
+                    print(f"Skipping {url} - Status: {response.status_code}")
+                    failed_urls.append(url)
+                    continue
+                
+                # Check content type
+                content_type = response.headers.get('content-type', '').lower()
+                if 'text/html' not in content_type:
+                    print(f"Skipping {url} - Not HTML: {content_type}")
                     continue
                 
                 visited.add(url)
@@ -313,9 +365,11 @@ class WebScraper:
                 if progress_callback:
                     progress_callback(len(visited), max_pages, url)
                 
+                # Parse content
                 soup = BeautifulSoup(response.text, "html.parser")
                 content_data = self.extract_content(soup, url)
                 
+                # More lenient content check
                 if len(content_data['content']) > 50:
                     doc = Document(
                         page_content=content_data['content'],
@@ -326,12 +380,15 @@ class WebScraper:
                         }
                     )
                     documents.append(doc)
+                    print(f"✓ Added document {len(documents)} - {len(content_data['content'])} chars")
+                else:
+                    print(f"✗ Content too short: {len(content_data['content'])} chars")
                 
-                # CHANGED: Added link limit to prevent infinite loops
+                # Find new links
                 if len(visited) < max_pages:
                     links_found = 0
                     for link in soup.find_all("a", href=True):
-                        if links_found >= 50:  # Limit links per page
+                        if links_found >= 50:
                             break
                         try:
                             next_url = urljoin(url, link['href'])
@@ -343,19 +400,45 @@ class WebScraper:
                                     links_found += 1
                         except:
                             pass
+                    
+                    if links_found > 0:
+                        print(f"Added {links_found} new links to queue")
                 
-                time.sleep(0.2)  # CHANGED: Reduced from 0.3 to 0.2
+                time.sleep(0.2)
             
+            except requests.exceptions.Timeout:
+                print(f"✗ Timeout: {url}")
+                failed_urls.append(url)
+                continue
+            except requests.exceptions.RequestException as e:
+                print(f"✗ Request error for {url}: {str(e)[:100]}")
+                failed_urls.append(url)
+                continue
             except Exception as e:
+                print(f"✗ Error processing {url}: {str(e)[:100]}")
                 self.debug_info.append(f"Error {url}: {str(e)[:50]}")
                 continue
         
+        print(f"\n=== Scraping Summary ===")
+        print(f"Pages visited: {len(visited)}")
+        print(f"Documents created: {len(documents)}")
+        print(f"Failed URLs: {len(failed_urls)}")
+        
+        if len(documents) == 0:
+            error_msg = f"No content extracted from {len(visited)} pages visited."
+            if failed_urls:
+                error_msg += f" Failed URLs: {failed_urls[:3]}"
+            raise Exception(error_msg)
+        
         if len(documents) < 3:
-            raise Exception(f"Insufficient content: {len(documents)} pages")
+            print(f"WARNING: Only {len(documents)} documents created")
+            # Don't fail if we got at least 1 document
+            if len(documents) == 0:
+                raise Exception(f"No valid content found on website")
         
         return documents, {
-            'emails': list(self.company_info['emails']),
-            'phones': list(self.company_info['phones']),
+            'emails': list(self.company_info['emails'])[:10],
+            'phones': list(self.company_info['phones'])[:10],
             'address_india': self.company_info['address_india'],
             'address_international': self.company_info['address_international'],
             'pages_scraped': len(visited)
@@ -522,7 +605,7 @@ ANSWER (2-5 sentences):"""
         )
     
     def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
-        """Initialize by scraping and creating vector store"""
+        """Initialize by scraping and creating vector store - IMPROVED"""
         try:
             if progress_callback:
                 progress_callback(0, max_pages, "Starting scraper...")
@@ -534,9 +617,12 @@ ANSWER (2-5 sentences):"""
                 progress_callback
             )
             
-            if len(documents) < 3:
-                self.status["error"] = f"Not enough content: {len(documents)} pages"
+            # More lenient check - allow even 1 document
+            if len(documents) == 0:
+                self.status["error"] = "No content could be extracted from website"
                 return False
+            
+            print(f"✓ Scraped {len(documents)} documents")
             
             self.company_data = company_info
             
@@ -551,11 +637,23 @@ ANSWER (2-5 sentences):"""
                 length_function=len
             )
             
-            split_docs = text_splitter.split_documents(documents)
+            # Filter out empty/short documents
+            valid_docs = [doc for doc in documents if doc.page_content and len(doc.page_content.strip()) > 100]
             
-            if len(split_docs) < 5:
-                self.status["error"] = f"Not enough chunks: {len(split_docs)}"
+            if len(valid_docs) == 0:
+                self.status["error"] = "No valid content after filtering"
                 return False
+            
+            print(f"✓ {len(valid_docs)} valid documents")
+            
+            split_docs = text_splitter.split_documents(valid_docs)
+            
+            # More lenient - allow as few as 3 chunks
+            if len(split_docs) < 3:
+                self.status["error"] = f"Not enough text chunks: {len(split_docs)} (need at least 3)"
+                return False
+            
+            print(f"✓ Split into {len(split_docs)} chunks")
             
             if progress_callback:
                 progress_callback(max_pages, max_pages, "Creating embeddings...")
@@ -569,7 +667,11 @@ ANSWER (2-5 sentences):"""
             chroma_dir = get_chroma_directory(self.company_slug)
             
             if os.path.exists(chroma_dir):
-                shutil.rmtree(chroma_dir)
+                try:
+                    shutil.rmtree(chroma_dir)
+                    print(f"✓ Cleaned old data")
+                except Exception as e:
+                    print(f"Warning: Could not remove old data: {e}")
             
             os.makedirs(chroma_dir, exist_ok=True)
             
@@ -583,13 +685,17 @@ ANSWER (2-5 sentences):"""
                 collection_name="company_knowledge"
             )
             
-            if self.vectorstore._collection.count() == 0:
-                raise Exception("Vectorstore is empty")
+            # Verify vectorstore
+            count = self.vectorstore._collection.count()
+            if count == 0:
+                raise Exception("Vectorstore is empty after creation")
+            
+            print(f"✓ Vectorstore created with {count} embeddings")
             
             # CHANGED: Simplified retriever for faster search
             self.retriever = self.vectorstore.as_retriever(
                 search_type="similarity",  # Changed from "mmr"
-                search_kwargs={"k": 5}  # Changed from complex kwargs
+                search_kwargs={"k": min(5, count)}  # Don't try to retrieve more than we have
             )
             
             self.status["ready"] = True
@@ -600,8 +706,8 @@ ANSWER (2-5 sentences):"""
             return True
         
         except Exception as e:
-            self.status["error"] = f"Error: {str(e)}"
-            print(f"Initialization error: {e}")
+            self.status["error"] = f"Initialization error: {str(e)}"
+            print(f"INITIALIZATION ERROR: {e}")
             import traceback
             traceback.print_exc()
             return False
