@@ -1,261 +1,822 @@
-###############################################################
-#  FULL SINGLE-FILE AI CHATBOT SYSTEM
-#  backend + UI + embeddings + RAG + scraper WORKING VERSION
-###############################################################
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
-import streamlit as st
-import os, re, json, time, hashlib, requests, shutil
-from datetime import datetime, timezone
-from urllib.parse import urlparse, urljoin
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from collections import deque
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
-from bs4 import BeautifulSoup
+import re
+import os
+import hashlib
+import json
+import time
+from typing import Optional, Dict, List, Tuple
+import streamlit as st
+import shutil
 
-###############################################################
-# CONFIG
-###############################################################
-
-st.set_page_config(page_title="AI Chatbot Generator", page_icon="🤖", layout="wide")
-
-DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
-MODEL = "kwaipilot/kat-coder-pro:free"
-API = "https://openrouter.ai/api/v1/chat/completions"
-
-if not OPENROUTER_API_KEY:
-    st.sidebar.error("⚠️ Add OPENROUTER_API_KEY in Secrets!")
-
-Base = declarative_base()
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-Session = sessionmaker(bind=engine)
-
-###############################################################
-# DATABASE
-###############################################################
-
-class Company(Base):
-    __tablename__="companies"
-    id=Column(Integer,primary_key=True)
-    name=Column(String(255))
-    slug=Column(String(255),unique=True)
-    url=Column(String(300))
-    pages=Column(Integer,default=30)
-    status=Column(String(50),default="pending")
-    data=Column(Text)
-    created=Column(DateTime,default=lambda:datetime.now(timezone.utc))
-
-class Chat(Base):
-    __tablename__="history"
-    id=Column(Integer,primary_key=True)
-    slug=Column(String(255))
-    q=Column(Text)
-    a=Column(Text)
-
-Base.metadata.create_all(engine)
-
-###############################################################
-# LANGCHAIN SAFE IMPORT SYSTEM
-###############################################################
-
+# Compatible imports for all LangChain versions
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
-except:
+except ImportError:
     from langchain.text_splitters import RecursiveCharacterTextSplitter
 
 try:
     from langchain_community.vectorstores import Chroma
-except:
+except ImportError:
     from langchain.vectorstores import Chroma
 
 try:
     from langchain_huggingface import HuggingFaceEmbeddings
-except:
+except ImportError:
     try:
         from langchain_community.embeddings import HuggingFaceEmbeddings
-    except:
+    except ImportError:
         from langchain.embeddings import HuggingFaceEmbeddings
 
 try:
     from langchain_core.documents import Document
-except:
+except ImportError:
     try:
         from langchain.docstore.document import Document
-    except:
+    except ImportError:
         from langchain.schema import Document
 
 try:
     from langchain_core.prompts import PromptTemplate
-except:
+except ImportError:
     from langchain.prompts import PromptTemplate
 
-###############################################################
-# URL VALIDATOR
-###############################################################
+# Database setup
+DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
 
-def validate(url):
-    try:
-        p=urlparse(url)
-        return p.scheme in ("http","https") and p.netloc
-    except:return False
 
-###############################################################
-# EMBEDDINGS (no infinite loading)
-###############################################################
+class Company(Base):
+    """Stores information about each company"""
+    __tablename__ = "companies"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_name = Column(String(255), unique=True, nullable=False, index=True)
+    company_slug = Column(String(255), unique=True, nullable=False, index=True)
+    website_url = Column(String(500), nullable=False)
+    
+    emails = Column(Text, nullable=True)
+    phones = Column(Text, nullable=True)
+    address_india = Column(Text, nullable=True)
+    address_international = Column(Text, nullable=True)
+    
+    pages_scraped = Column(Integer, default=0)
+    last_scraped = Column(DateTime, nullable=True)
+    scraping_status = Column(String(50), default="pending")
+    
+    is_active = Column(Boolean, default=True)
+    max_pages_to_scrape = Column(Integer, default=40)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, onupdate=lambda: datetime.now(timezone.utc))
 
-_EMB=None
-def embeddings():
-    global _EMB
-    if _EMB:return _EMB
-    try:
-        _EMB=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    except:
-        _EMB=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    return _EMB
 
-###############################################################
-# SCRAPER
-###############################################################
+class ChatHistory(Base):
+    """Stores chat conversations"""
+    __tablename__ = "chat_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_slug = Column(String(255), nullable=False, index=True)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    session_id = Column(String(100), nullable=True, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-def scrape(url,maxp,cb=None):
-    q=deque([url])
-    seen=set(); docs=[]
 
-    while q and len(seen)<maxp:
-        u=q.popleft()
-        if u in seen:continue
-        seen.add(u)
+class UserContact(Base):
+    """Stores user contact information"""
+    __tablename__ = "user_contacts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    company_slug = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    phone = Column(String(20), nullable=False)
+    session_id = Column(String(100), nullable=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+
+Base.metadata.create_all(bind=engine)
+
+# API Configuration
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "kwaipilot/kat-coder-pro:free"
+
+PRIORITY_PAGES = [
+    "", "about", "services", "solutions", "products", "contact", "team",
+    "careers", "about-us", "contact-us", "our-services", "home"
+]
+
+
+def create_slug(company_name: str) -> str:
+    """Convert company name to URL-friendly slug"""
+    slug = company_name.lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    return slug.strip('-')
+
+
+def get_chroma_directory(company_slug: str) -> str:
+    """Get ChromaDB directory path"""
+    return f"./chroma_db/{company_slug}"
+
+
+class WebScraper:
+    """Web scraper with content extraction"""
+    
+    def __init__(self, company_slug: str):
+        self.company_slug = company_slug
+        self.company_info = {
+            'emails': set(),
+            'phones': set(),
+            'address_india': None,
+            'address_international': None
+        }
+        self.debug_info = []
+    
+    def clean_text(self, text: str) -> str:
+        """Clean and normalize text"""
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'[^\w\s.,!?;:()\-\'\"]+', '', text)
+        return text.strip()
+    
+    def extract_contact_info(self, text: str):
+        """Extract contact information"""
+        # Emails
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+        emails = re.findall(email_pattern, text)
+        for email in emails:
+            if not email.lower().endswith(('.png', '.jpg', '.gif')):
+                self.company_info['emails'].add(email.lower())
+        
+        # Phones
+        phone_patterns = [
+            r'\+\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
+            r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
+        ]
+        for pattern in phone_patterns:
+            phones = re.findall(pattern, text)
+            for phone in phones:
+                cleaned = re.sub(r'[^\d+]', '', phone)
+                if 7 <= len(cleaned) <= 15:
+                    self.company_info['phones'].add(phone.strip())
+        
+        # Addresses
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            low = line.lower()
+            
+            india_keywords = ['india', 'mumbai', 'delhi', 'bangalore', 'chennai', 'madurai']
+            if any(city in low for city in india_keywords):
+                if not self.company_info['address_india']:
+                    block = " ".join(lines[max(0, i-2):min(len(lines), i+4)])
+                    cleaned = self.clean_text(block)
+                    if 20 < len(cleaned) < 500:
+                        self.company_info['address_india'] = cleaned
+            
+            intl_keywords = ['singapore', 'usa', 'uk', 'uae', 'dubai']
+            if any(country in low for country in intl_keywords):
+                if not self.company_info['address_international']:
+                    block = " ".join(lines[max(0, i-2):min(len(lines), i+4)])
+                    cleaned = self.clean_text(block)
+                    if 20 < len(cleaned) < 500:
+                        self.company_info['address_international'] = cleaned
+    
+    def is_valid_url(self, url: str, base_domain: str) -> bool:
+        """Check if URL should be scraped"""
         try:
-            r=requests.get(u,timeout=15)
-            if r.status_code!=200:continue
-            soup=BeautifulSoup(r.text,"html.parser")
-            text=soup.get_text(" ",strip=True)
-            clean="\n".join(t for t in text.split("\n") if len(t)>45)[:2500]
-            if len(clean)>200:
-                docs.append(Document(page_content=clean,metadata={"src":u}))
+            parsed = urlparse(url)
+            if parsed.netloc != base_domain:
+                return False
+            
+            skip_extensions = ['.pdf', '.jpg', '.png', '.zip', '.mp4', '.css', '.js']
+            skip_paths = ['/wp-admin/', '/admin/', '/login', '/cart/']
+            
+            url_lower = url.lower()
+            
+            for ext in skip_extensions:
+                if url_lower.endswith(ext):
+                    return False
+            
+            for path in skip_paths:
+                if path in url_lower:
+                    return False
+            
+            return True
+        except:
+            return False
+    
+    def extract_content(self, soup: BeautifulSoup, url: str) -> Dict:
+        """Extract content from page"""
+        content_dict = {'url': url, 'title': '', 'content': ''}
+        
+        try:
+            if soup.find('title'):
+                content_dict['title'] = soup.find('title').get_text(strip=True)
+            
+            meta_desc = soup.find('meta', attrs={"name": "description"})
+            if meta_desc and meta_desc.get("content"):
+                content_dict['content'] += meta_desc["content"] + "\n\n"
+            
+            full_text = soup.get_text(separator="\n", strip=True)
+            self.extract_contact_info(full_text)
+            
+            for tag in soup(['script', 'style', 'iframe', 'nav', 'footer', 'header']):
+                tag.decompose()
+            
+            main_selectors = ["main", "article", "[role='main']", ".content", "#content"]
+            texts = []
+            
+            for selector in main_selectors:
+                elements = soup.select(selector)
+                for elem in elements:
+                    text = elem.get_text(separator="\n", strip=True)
+                    if len(text) > 100:
+                        texts.append(text)
+            
+            for tag_name in ['h1', 'h2', 'h3', 'p']:
+                for tag in soup.find_all(tag_name):
+                    text = tag.get_text(strip=True)
+                    if len(text) > 20:
+                        texts.append(text)
+            
+            if len(texts) < 5:
+                body = soup.find('body')
+                if body:
+                    text = body.get_text(separator="\n", strip=True)
+                    if text:
+                        texts.append(text)
+            
+            if texts:
+                combined = "\n".join(texts)
+                lines = [self.clean_text(line) for line in combined.split("\n") if len(line.strip()) > 15]
+                
+                seen = set()
+                unique_lines = []
+                for line in lines:
+                    line_lower = line.lower()
+                    if line_lower not in seen and len(line) > 20:
+                        seen.add(line_lower)
+                        unique_lines.append(line)
+                
+                content_dict['content'] = "\n".join(unique_lines)
+        
+        except Exception as e:
+            self.debug_info.append(f"Error {url}: {str(e)[:50]}")
+        
+        return content_dict
+    
+    def scrape_website(self, base_url: str, max_pages: int = 40, 
+                        progress_callback=None) -> Tuple[List[Document], Dict]:
+        """Scrape website and return Documents"""
+        visited = set()
+        queue = deque()
+        base_domain = urlparse(base_url).netloc
+        
+        base_url = base_url.rstrip('/') + '/'
+        
+        for page in PRIORITY_PAGES:
+            for url in [urljoin(base_url, page), urljoin(base_url, page + '/')]:
+                if url not in queue:
+                    queue.append(url)
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        documents = []
+        
+        while queue and len(visited) < max_pages:
+            url = queue.popleft()
+            url = url.split("#")[0].split("?")[0].rstrip('/')
+            
+            if url in visited or not self.is_valid_url(url, base_domain):
+                continue
+            
+            try:
+                response = requests.get(url, headers=headers, timeout=20)
+                
+                if response.status_code != 200:
+                    continue
+                
+                visited.add(url)
+                
+                if progress_callback:
+                    progress_callback(len(visited), max_pages, url)
+                
+                soup = BeautifulSoup(response.text, "html.parser")
+                content_data = self.extract_content(soup, url)
+                
+                if len(content_data['content']) > 50:
+                    doc = Document(
+                        page_content=content_data['content'],
+                        metadata={
+                            'source': url,
+                            'title': content_data['title'],
+                            'company': self.company_slug
+                        }
+                    )
+                    documents.append(doc)
+                
+                for link in soup.find_all("a", href=True):
+                    try:
+                        next_url = urljoin(url, link['href'])
+                        next_url = next_url.split("#")[0].split("?")[0].rstrip('/')
+                        
+                        if next_url not in visited and self.is_valid_url(next_url, base_domain):
+                            if next_url not in queue:
+                                queue.append(next_url)
+                    except:
+                        pass
+                
+                time.sleep(0.3)
+            
+            except Exception as e:
+                self.debug_info.append(f"Error {url}: {str(e)[:50]}")
+                continue
+        
+        if len(documents) < 3:
+            raise Exception(f"Insufficient content: {len(documents)} pages")
+        
+        return documents, {
+            'emails': list(self.company_info['emails']),
+            'phones': list(self.company_info['phones']),
+            'address_india': self.company_info['address_india'],
+            'address_international': self.company_info['address_international'],
+            'pages_scraped': len(visited)
+        }
 
-            for a in soup.find_all("a",href=True):
-                link=urljoin(url,a['href']).split("#")[0]
-                if urlparse(link).netloc==urlparse(url).netloc:
-                    q.append(link)
 
-            if cb:cb(len(seen),maxp,u)
-
-        except:pass
-
-    return docs,{"pages":len(seen)}
-
-###############################################################
-# AI CORE
-###############################################################
-
-class AI:
-    def __init__(self,slug):self.slug=slug;self.v=None
-
-    def build(self,url,maxp,cb=None):
-        docs,data=scrape(url,maxp,cb)
-        if len(docs)<3:return False
-
-        path=f"chroma/{self.slug}"
-        if os.path.exists(path):shutil.rmtree(path)
-        os.makedirs(path,exist_ok=True)
-
-        spl=RecursiveCharacterTextSplitter(chunk_size=900,chunk_overlap=150)
-        docs=spl.split_documents(docs)
-
-        self.v=Chroma.from_documents(docs,embeddings(),persist_directory=path)
-        return True
-
-    def load(self):
-        path=f"chroma/{self.slug}"
-        if not os.path.exists(path):return False
-        self.v=Chroma(persist_directory=path,embedding_function=embeddings())
-        return True
-
-    def ask(self,q):
-        ctx="\n".join(d.page_content[:300] for d in self.v.similarity_search(q,k=3))
-        prompt=f"Use ONLY info below:\n{ctx}\nQ:{q}\nA:"
-
-        r=requests.post(API,json={
-            "model":MODEL,
-            "messages":[{"role":"user","content":prompt}]
-        },headers={"Authorization":f"Bearer {OPENROUTER_API_KEY}"})
-        return r.json()["choices"][0]["message"]["content"]
-
-###############################################################
-# STREAMLIT UI
-###############################################################
-
-if "page" not in st.session_state: st.session_state.page="home"
-if "chat" not in st.session_state: st.session_state.chat=[]
-if "slug" not in st.session_state: st.session_state.slug=None
-if "ai" not in st.session_state: st.session_state.ai=None
-
-################################ HOME ################################
-if st.session_state.page=="home":
-    st.title("🤖 AI Chatbot Generator")
-    st.write("Create chatbot from any website automatically.")
-
-    if st.button("➕ Create New Chatbot"): st.session_state.page="create"; st.rerun()
-    if st.button("📋 View All Chatbots"): st.session_state.page="list"; st.rerun()
-
-################################ CREATE BOT ################################
-elif st.session_state.page=="create":
-    st.header("Create New Chatbot")
-
-    name=st.text_input("Company Name")
-    url=st.text_input("Website URL")
-    pages=st.slider("Pages to Scrape",10,60,30)
-
-    if st.button("🚀 Build Chatbot"):
-        if not(name and validate(url)): st.error("Invalid input"); st.stop()
-
-        db=Session()
-        slug=re.sub(r'[^a-z0-9]+','-',name.lower())
-        db.add(Company(name=name,slug=slug,url=url,pages=pages))
+def create_company(company_name: str, website_url: str, max_pages: int = 40) -> Optional[str]:
+    """Create new company"""
+    db = SessionLocal()
+    try:
+        slug = create_slug(company_name)
+        
+        existing = db.query(Company).filter(Company.company_slug == slug).first()
+        if existing:
+            return None
+        
+        company = Company(
+            company_name=company_name,
+            company_slug=slug,
+            website_url=website_url,
+            max_pages_to_scrape=max_pages,
+            scraping_status="pending"
+        )
+        db.add(company)
         db.commit()
+        db.refresh(company)
+        
+        return slug
+    except Exception as e:
+        print(f"Error: {e}")
+        db.rollback()
+        return None
+    finally:
+        db.close()
 
-        ai=AI(slug)
-        prog=st.progress(0); text=st.empty()
-        ok=ai.build(url,pages,lambda a,b,u:(prog.progress(a/b),text.write(u)))
 
-        if ok:
-            st.success("Chatbot Ready ✔")
-            st.session_state.slug=slug
-            st.session_state.ai=ai
-            st.session_state.chat=[]
-            st.session_state.page="chat"; st.rerun()
-        else: st.error("Scraping failed")
+def update_company_after_scraping(slug: str, company_info: Dict, status: str = "completed"):
+    """Update company after scraping"""
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.company_slug == slug).first()
+        if company:
+            company.emails = json.dumps(company_info.get('emails', []))
+            company.phones = json.dumps(company_info.get('phones', []))
+            company.address_india = company_info.get('address_india')
+            company.address_international = company_info.get('address_international')
+            company.pages_scraped = company_info.get('pages_scraped', 0)
+            company.scraping_status = status
+            company.last_scraped = datetime.now(timezone.utc)
+            db.commit()
+    except Exception as e:
+        print(f"Error: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
-################################ LIST ################################
-elif st.session_state.page=="list":
-    st.header("All Chatbots")
-    db=Session(); bots=db.query(Company).all()
 
-    for b in bots:
-        st.write(f"### {b.name}")
-        if st.button(f"💬 Chat",key=b.slug):
-            st.session_state.slug=b.slug; st.session_state.ai=AI(b.slug)
-            st.session_state.ai.load()
-            st.session_state.page="chat"; st.session_state.chat=[]; st.rerun()
+def get_all_companies() -> List[Company]:
+    """Get all companies"""
+    db = SessionLocal()
+    try:
+        return db.query(Company).order_by(Company.created_at.desc()).all()
+    finally:
+        db.close()
 
-################################ CHAT ################################
-elif st.session_state.page=="chat":
-    c=Session().query(Company).filter_by(slug=st.session_state.slug).first()
-    st.header(f"Chat with {c.name}")
 
-    # show history
-    for m in st.session_state.chat:
-        with st.chat_message(m["role"]): st.write(m["text"])
+def get_company_by_slug(slug: str) -> Optional[Company]:
+    """Get company by slug"""
+    db = SessionLocal()
+    try:
+        return db.query(Company).filter(Company.company_slug == slug).first()
+    finally:
+        db.close()
 
-    q=st.chat_input("Ask something...")
-    if q:
-        with st.chat_message("user"): st.write(q)
-        with st.chat_message("assistant"):
-            ans=st.session_state.ai.ask(q)
-            st.write(ans)
 
-        st.session_state.chat.append({"role":"user","text":q})
-        st.session_state.chat.append({"role":"assistant","text":ans})
-        st.rerun()
+# ------------------------------------------------------------------------------
+# AI ENGINE
+# ------------------------------------------------------------------------------
+
+class CompanyAI:
+    """AI Engine with RAG for answering questions"""
+    
+    def __init__(self, company_slug: str):
+        self.company_slug = company_slug
+        self.vectorstore = None
+        self.retriever = None
+        self.embeddings = None
+        self.status = {"ready": False, "error": None}
+        self.company_data = None
+        
+        self.qa_template = """You are an intelligent AI assistant for {company_name}. Answer questions accurately using the provided context.
+
+CONTEXT FROM COMPANY WEBSITE:
+{context}
+
+RECENT CONVERSATION:
+{chat_history}
+
+USER QUESTION: {question}
+
+INSTRUCTIONS:
+1. Answer using ONLY information from the context
+2. Be specific, detailed, and helpful
+3. If information is not in context, say "I don't have that information. Here's how to contact us: [provide contact details]"
+4. Be conversational and friendly
+5. Include relevant details when appropriate
+
+ANSWER (2-5 sentences):"""
+
+        self.qa_prompt = PromptTemplate(
+            template=self.qa_template,
+            input_variables=["company_name", "context", "chat_history", "question"]
+        )
+    
+    def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
+        """Initialize by scraping and creating vector store"""
+        try:
+            if progress_callback:
+                progress_callback(0, max_pages, "Starting scraper...")
+            
+            scraper = WebScraper(self.company_slug)
+            documents, company_info = scraper.scrape_website(
+                website_url, 
+                max_pages, 
+                progress_callback
+            )
+            
+            if len(documents) < 3:
+                self.status["error"] = f"Not enough content: {len(documents)} pages"
+                return False
+            
+            self.company_data = company_info
+            
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "Processing documents...")
+            
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200,
+                separators=["\n\n", "\n", ". ", "! ", "? ", ", ", " "],
+                length_function=len
+            )
+            
+            split_docs = text_splitter.split_documents(documents)
+            
+            if len(split_docs) < 5:
+                self.status["error"] = f"Not enough chunks: {len(split_docs)}"
+                return False
+            
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "Creating embeddings...")
+            
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            chroma_dir = get_chroma_directory(self.company_slug)
+            
+            if os.path.exists(chroma_dir):
+                shutil.rmtree(chroma_dir)
+            
+            os.makedirs(chroma_dir, exist_ok=True)
+            
+            if progress_callback:
+                progress_callback(max_pages, max_pages, "Building vector database...")
+            
+            self.vectorstore = Chroma.from_documents(
+                documents=split_docs,
+                embedding=self.embeddings,
+                persist_directory=chroma_dir,
+                collection_name="company_knowledge"
+            )
+            
+            if self.vectorstore._collection.count() == 0:
+                raise Exception("Vectorstore is empty")
+            
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": 6,
+                    "fetch_k": 15,
+                    "lambda_mult": 0.7
+                }
+            )
+            
+            self.status["ready"] = True
+            
+            if progress_callback:
+                progress_callback(max_pages, max_pages, " Chatbot Ready!")
+            
+            return True
+        
+        except Exception as e:
+            self.status["error"] = f"Error: {str(e)}"
+            print(f"Initialization error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def load_existing(self):
+        """Load existing vector store"""
+        try:
+            chroma_dir = get_chroma_directory(self.company_slug)
+            
+            if not os.path.exists(chroma_dir):
+                self.status["error"] = "Chatbot data not found"
+                return False
+            
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True}
+            )
+            
+            self.vectorstore = Chroma(
+                persist_directory=chroma_dir,
+                embedding_function=self.embeddings,
+                collection_name="company_knowledge"
+            )
+            
+            if self.vectorstore._collection.count() == 0:
+                self.status["error"] = "Empty vectorstore"
+                return False
+            
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": 6,
+                    "fetch_k": 15,
+                    "lambda_mult": 0.7
+                }
+            )
+            
+            company = get_company_by_slug(self.company_slug)
+            if company:
+                try:
+                    self.company_data = {
+                        'emails': json.loads(company.emails) if company.emails else [],
+                        'phones': json.loads(company.phones) if company.phones else [],
+                        'address_india': company.address_india,
+                        'address_international': company.address_international
+                    }
+                except:
+                    self.company_data = {}
+            
+            self.status["ready"] = True
+            return True
+        
+        except Exception as e:
+            self.status["error"] = f"Load error: {str(e)}"
+            print(f"Load error: {e}")
+            return False
+    
+    def get_contact_info(self):
+        """Format contact information"""
+        if not self.company_data:
+            return "Contact information not available."
+        
+        info = self.company_data
+        msg = " **CONTACT INFORMATION**\n\n"
+        
+        if info.get('address_india'):
+            msg += f" **India Office:**\n{info['address_india']}\n\n"
+        
+        if info.get('address_international'):
+            msg += f" **International Office:**\n{info['address_international']}\n\n"
+        
+        if info.get('emails'):
+            msg += " **Email:**\n" + "\n".join([f"• {e}" for e in info['emails'][:5]]) + "\n\n"
+        
+        if info.get('phones'):
+            msg += " **Phone:**\n" + "\n".join([f"• {p}" for p in info['phones'][:5]]) + "\n"
+        
+        return msg.strip()
+    
+    def ask(self, question: str, chat_history: List = None, session_id: str = None) -> str:
+        """Answer question using RAG"""
+        try:
+            # Check if system is ready
+            if not self.status.get("ready", False):
+                return " System is initializing. Please wait..."
+            
+            # Check if retriever exists
+            if not self.retriever:
+                return " Chatbot not properly initialized. Please try reloading."
+            
+            q_lower = question.lower().strip()
+            
+            # Handle greetings
+            greetings = ["hi", "hello", "hey", "hai"]
+            if q_lower in greetings or len(q_lower) < 5:
+                company = get_company_by_slug(self.company_slug)
+                company_name = company.company_name if company else "our company"
+                return f"Hello! I'm here to answer questions about {company_name}. How can I help you today?"
+            
+            # Handle contact requests
+            contact_keywords = ["email", "contact", "phone", "address", "office", "location", "reach"]
+            if any(keyword in q_lower for keyword in contact_keywords):
+                return self.get_contact_info()
+            
+            print(f"\n=== Processing question: {question} ===")
+            
+            # Retrieve relevant documents
+            print("Retrieving relevant documents...")
+            try:
+                # Try the new invoke method first
+                relevant_docs = self.retriever.invoke(question)
+            except AttributeError:
+                # Fallback to old method if invoke doesn't exist
+                try:
+                    relevant_docs = self.retriever.get_relevant_documents(question)
+                except Exception as e:
+                    print(f"Retrieval error: {e}")
+                    return " Error retrieving information. Please try again."
+            
+            print(f"Found {len(relevant_docs)} relevant documents")
+            
+            if not relevant_docs or len(relevant_docs) == 0:
+                return "I couldn't find specific information about that. Could you rephrase your question?"
+            
+            # Build context
+            context_parts = []
+            for i, doc in enumerate(relevant_docs[:5]):
+                if hasattr(doc, 'page_content') and doc.page_content:
+                    source = doc.metadata.get('source', 'unknown')
+                    title = doc.metadata.get('title', '')
+                    
+                    context_part = f"[From: {title if title else source}]\n{doc.page_content[:500]}"
+                    context_parts.append(context_part)
+                    print(f"Doc {i+1}: {len(doc.page_content)} chars from {source}")
+            
+            if not context_parts:
+                return "I found documents but couldn't extract content. Please try again."
+            
+            context = "\n\n---\n\n".join(context_parts)
+            print(f"Total context length: {len(context)} chars")
+            
+            # Format chat history
+            history_text = ""
+            if chat_history:
+                history_text = "\n".join([
+                    f"User: {msg['question']}\nAssistant: {msg['answer']}" 
+                    for msg in chat_history[-3:]
+                ])
+            
+            # Get company name
+            company = get_company_by_slug(self.company_slug)
+            company_name = company.company_name if company else "the company"
+            
+            # Build prompt
+            prompt = self.qa_prompt.format(
+                company_name=company_name,
+                context=context[:4000],  # Limit context size
+                chat_history=history_text,
+                question=question
+            )
+            
+            print(f"Prompt length: {len(prompt)} chars")
+            print("Calling LLM...")
+            
+            # Call LLM
+            answer = self._call_llm(prompt)
+            
+            print(f"Answer received: {answer[:100] if answer else 'None'}...")
+            
+            if answer and not answer.startswith(" "):
+                self.save_chat(question, answer, session_id)
+                return answer
+            elif answer:
+                return answer  # Return error message
+            else:
+                return "I'm having trouble generating a response. Please try again."
+        
+        except Exception as e:
+            print(f"ERROR in ask(): {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return f" An error occurred. Please try again or reload the page."
+    
+    def _call_llm(self, prompt: str, max_retries: int = 3) -> str:
+        """Call LLM API"""
+        if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "":
+            print("ERROR: OPENROUTER_API_KEY not set!")
+            return " API key not configured. Please set OPENROUTER_API_KEY environment variable."
+        
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:8501",
+            "X-Title": "AI Chatbot"
+        }
+        
+        payload = {
+            "model": MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful AI assistant. Answer accurately based on context."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.5,
+            "max_tokens": 600,
+        }
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"Attempt {attempt + 1}/{max_retries} - Calling LLM...")
+                
+                response = requests.post(
+                    OPENROUTER_API_BASE,
+                    headers=headers,
+                    json=payload,
+                    timeout=60
+                )
+                
+                print(f"Response status: {response.status_code}")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    # print(f"Response received: {str(result)[:200]}...")
+                    
+                    if "choices" in result and len(result["choices"]) > 0:
+                        answer = result["choices"][0]["message"]["content"].strip()
+                        
+                        if answer and len(answer) > 10:
+                            return answer
+                        else:
+                            print(f"Answer too short: {answer}")
+                    else:
+                        print(f"No choices in response: {result}")
+                
+                elif response.status_code == 429:
+                    print("Rate limited, waiting...")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                else:
+                    print(f"API Error: {response.text}")
+                    
+            except Exception as e:
+                print(f"Request error: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+                    continue
+        
+        return "I'm currently unable to connect to the AI service. Please try again later."
+
+    def save_chat(self, question: str, answer: str, session_id: str = None):
+        """Save chat to database"""
+        try:
+            db = SessionLocal()
+            history = ChatHistory(
+                company_slug=self.company_slug,
+                question=question,
+                answer=answer,
+                session_id=session_id
+            )
+            db.add(history)
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"Error saving chat: {e}")
