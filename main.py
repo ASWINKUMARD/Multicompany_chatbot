@@ -14,7 +14,8 @@ try:
     import sys
     sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 except ImportError:
-    pass  # Use default sqlite3
+    # On platforms where pysqlite3 is not available, just use default sqlite3
+    pass
 
 # =============================================================================
 # IMPORTS
@@ -39,7 +40,8 @@ import shutil
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    # NOTE: correct module name is text_splitters (with s)
+    from langchain.text_splitters import RecursiveCharacterTextSplitter
 
 try:
     from langchain_community.vectorstores import Chroma
@@ -66,6 +68,14 @@ try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
     from langchain.prompts import PromptTemplate
+
+# =============================================================================
+# CONSTANTS / LIMITS FOR SCRAPER
+# =============================================================================
+
+SCRAPER_MAX_SECONDS = 90        # Hard time limit per scraping run
+SCRAPER_REQUEST_TIMEOUT = 10    # Per-request timeout (seconds)
+SCRAPER_SLEEP_BETWEEN = 0.2     # Sleep between requests
 
 # =============================================================================
 # DATABASE CONFIGURATION
@@ -122,7 +132,7 @@ Base.metadata.create_all(bind=engine)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "meta-llama/llama-3.1-8b-instruct:free"  # Changed to a more reliable free model
+MODEL = "meta-llama/llama-3.1-8b-instruct:free"  # Free model on OpenRouter
 
 PRIORITY_PAGES = [
     "",
@@ -152,6 +162,14 @@ def create_slug(company_name: str) -> str:
     return slug.strip("-")
 
 
+def normalize_base_url(url: str) -> str:
+    """Ensure base URL has a scheme and trailing slash."""
+    url = url.strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    return url.rstrip("/") + "/"
+
+
 def get_chroma_directory(company_slug: str) -> str:
     """Get ChromaDB directory path"""
     return f"./chroma_db/{company_slug}"
@@ -163,7 +181,7 @@ def get_chroma_directory(company_slug: str) -> str:
 
 
 class WebScraper:
-    """Web scraper with intelligent content extraction"""
+    """Web scraper with intelligent content extraction and safety limits"""
 
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -202,7 +220,7 @@ class WebScraper:
                 if 7 <= len(cleaned) <= 15:
                     self.company_info["phones"].add(phone.strip())
 
-        # Extract addresses
+        # Extract addresses (very heuristic)
         lines = text.split("\n")
         for i, line in enumerate(lines):
             low = line.lower()
@@ -335,7 +353,7 @@ class WebScraper:
                 content_dict["content"] += "\n".join(unique_lines)
 
         except Exception as e:
-            self.debug_info.append(f"Error {url}: {str(e)[:50]}")
+            self.debug_info.append(f"Error {url}: {str(e)[:80]}")
 
         return content_dict
 
@@ -345,12 +363,20 @@ class WebScraper:
         max_pages: int = 40,
         progress_callback=None,
     ) -> Tuple[List[Document], Dict]:
-        """Scrape website and return Documents"""
+        """
+        Scrape website and return Documents.
+
+        Safety limits:
+        - max_pages is capped to 25 (even if higher is passed).
+        - global time limit SCRAPER_MAX_SECONDS.
+        """
+        start_time = time.time()
+        max_pages = min(max_pages, 25)  # hard cap to avoid massive crawls
+
+        base_url = normalize_base_url(base_url)
         visited = set()
         queue = deque()
         base_domain = urlparse(base_url).netloc
-
-        base_url = base_url.rstrip("/") + "/"
 
         for page in PRIORITY_PAGES:
             for url in [urljoin(base_url, page), urljoin(base_url, page + "/")]:
@@ -358,12 +384,18 @@ class WebScraper:
                     queue.append(url)
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(compatible; ChatbotScraper/1.0)"
         }
 
         documents = []
 
         while queue and len(visited) < max_pages:
+            # Global time limit
+            if time.time() - start_time > SCRAPER_MAX_SECONDS:
+                self.debug_info.append("Global time limit reached; stopping scrape.")
+                break
+
             url = queue.popleft()
             url = url.split("#")[0].split("?")[0].rstrip("/")
 
@@ -371,7 +403,11 @@ class WebScraper:
                 continue
 
             try:
-                response = requests.get(url, headers=headers, timeout=20)
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    timeout=SCRAPER_REQUEST_TIMEOUT,
+                )
 
                 if response.status_code != 200:
                     continue
@@ -398,9 +434,7 @@ class WebScraper:
                 for link in soup.find_all("a", href=True):
                     try:
                         next_url = urljoin(url, link["href"])
-                        next_url = (
-                            next_url.split("#")[0].split("?")[0].rstrip("/")
-                        )
+                        next_url = next_url.split("#")[0].split("?")[0].rstrip("/")
 
                         if (
                             next_url not in visited
@@ -411,14 +445,16 @@ class WebScraper:
                     except Exception:
                         pass
 
-                time.sleep(0.3)
+                time.sleep(SCRAPER_SLEEP_BETWEEN)
 
             except Exception as e:
-                self.debug_info.append(f"Error {url}: {str(e)[:50]}")
+                self.debug_info.append(f"Error {url}: {str(e)[:80]}")
                 continue
 
         if len(documents) < 3:
-            raise Exception(f"Insufficient content: {len(documents)} pages")
+            raise Exception(
+                f"Insufficient content: {len(documents)} pages (visited {len(visited)})."
+            )
 
         return documents, {
             "emails": list(self.company_info["emails"]),
@@ -593,6 +629,13 @@ ANSWER:"""
 
     def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
         """Initialize by scraping and creating vector store"""
+        company_info = {
+            "emails": [],
+            "phones": [],
+            "address_india": None,
+            "address_international": None,
+            "pages_scraped": 0,
+        }
         try:
             if progress_callback:
                 progress_callback(0, max_pages, "Starting scraper...")
@@ -606,6 +649,11 @@ ANSWER:"""
 
             if len(documents) < 3:
                 self.status["error"] = f"Not enough content: {len(documents)} pages"
+                update_company_after_scraping(
+                    self.company_slug,
+                    company_info,
+                    status="failed",
+                )
                 return False
 
             self.company_data = company_info
@@ -624,11 +672,17 @@ ANSWER:"""
 
             if len(split_docs) < 5:
                 self.status["error"] = f"Not enough chunks: {len(split_docs)}"
+                update_company_after_scraping(
+                    self.company_slug,
+                    company_info,
+                    status="failed",
+                )
                 return False
 
             if progress_callback:
                 progress_callback(max_pages, max_pages, "Creating embeddings...")
 
+            # CPU-only embeddings to avoid meta-tensor issues
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={"device": "cpu"},
@@ -639,7 +693,6 @@ ANSWER:"""
 
             if os.path.exists(chroma_dir):
                 shutil.rmtree(chroma_dir)
-
             os.makedirs(chroma_dir, exist_ok=True)
 
             if progress_callback:
@@ -678,13 +731,7 @@ ANSWER:"""
 
             update_company_after_scraping(
                 self.company_slug,
-                {
-                    "emails": [],
-                    "phones": [],
-                    "address_india": None,
-                    "address_international": None,
-                    "pages_scraped": 0,
-                },
+                company_info,
                 status="failed",
             )
             return False
@@ -761,7 +808,7 @@ ANSWER:"""
         """Answer question using RAG"""
         try:
             if not self.status.get("ready", False):
-                return "⚠️ System is initializing. Please wait..."
+                return "⚠️ System is initializing. Please wait or re-initialize."
 
             if not self.retriever:
                 return "⚠️ Chatbot not properly initialized."
@@ -844,7 +891,10 @@ ANSWER:"""
         payload = {
             "model": MODEL,
             "messages": [
-                {"role": "system", "content": "You are a helpful assistant. Answer concisely based on the context."},
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant. Answer concisely based on the context.",
+                },
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.3,
@@ -951,7 +1001,7 @@ def render_sidebar():
 
     st.sidebar.subheader("Select Company")
     companies = get_all_companies()
-    
+
     if not companies:
         st.sidebar.info("No companies yet.")
         return None, None, None
@@ -966,7 +1016,7 @@ def render_sidebar():
 
     selected_label = st.sidebar.selectbox("Choose Company", label_list, index=default_idx)
     selected_slug = slug_list[label_list.index(selected_label)]
-    
+
     if st.session_state["current_company_slug"] != selected_slug:
         st.session_state["current_company_slug"] = selected_slug
         st.session_state["chat_messages"] = []
@@ -981,7 +1031,9 @@ def render_sidebar():
             st.write(f"**Pages:** {selected_company.pages_scraped or 0}")
             st.write(f"**Status:** {selected_company.scraping_status}")
             if selected_company.last_scraped:
-                st.write(f"**Last Scraped:** {selected_company.last_scraped.strftime('%Y-%m-%d %H:%M')}")
+                st.write(
+                    f"**Last Scraped:** {selected_company.last_scraped.strftime('%Y-%m-%d %H:%M')}"
+                )
 
     reinit = st.sidebar.button("🔄 Re-scrape & Rebuild", key="rescrape_btn")
 
@@ -1018,7 +1070,7 @@ def main():
                 def callback(done, total, url):
                     ratio = min(done / max(total, 1), 1.0)
                     progress.progress(ratio)
-                    status_text.write(f"Scraping ({done}/{total}): {url[:50]}...")
+                    status_text.write(f"Scraping ({done}/{total}): {url[:60]}...")
 
                 status_text.write("Starting...")
                 ai = CompanyAI(selected_slug)
@@ -1026,7 +1078,13 @@ def main():
 
                 update_company_after_scraping(
                     selected_slug,
-                    {"emails": [], "phones": [], "address_india": None, "address_international": None, "pages_scraped": 0},
+                    {
+                        "emails": [],
+                        "phones": [],
+                        "address_india": None,
+                        "address_international": None,
+                        "pages_scraped": 0,
+                    },
                     status="running",
                 )
 
@@ -1041,6 +1099,8 @@ def main():
                     st.rerun()
                 else:
                     st.error(f"❌ Failed: {ai.status.get('error')}")
+                    with st.expander("Debug info", expanded=False):
+                        st.write("If the website is very slow or blocked, try reducing max pages.")
 
             else:
                 if ai and ai.status.get("ready"):
@@ -1062,7 +1122,7 @@ def main():
                         def callback(done, total, url):
                             ratio = min(done / max(total, 1), 1.0)
                             progress.progress(ratio)
-                            status_text.write(f"Scraping ({done}/{total}): {url[:50]}...")
+                            status_text.write(f"Scraping ({done}/{total}): {url[:60]}...")
 
                         status_text.write("Starting...")
                         ai = CompanyAI(selected_slug)
@@ -1070,7 +1130,13 @@ def main():
 
                         update_company_after_scraping(
                             selected_slug,
-                            {"emails": [], "phones": [], "address_india": None, "address_international": None, "pages_scraped": 0},
+                            {
+                                "emails": [],
+                                "phones": [],
+                                "address_india": None,
+                                "address_international": None,
+                                "pages_scraped": 0,
+                            },
                             status="running",
                         )
 
@@ -1085,6 +1151,8 @@ def main():
                             st.rerun()
                         else:
                             st.error(f"❌ Failed: {ai.status.get('error')}")
+                            with st.expander("Debug info", expanded=False):
+                                st.write("If the website is very slow or blocked, try reducing max pages.")
 
             if ai and ai.company_data:
                 with st.expander("📞 Contact Info", expanded=False):
@@ -1112,7 +1180,7 @@ def main():
         # Chat input
         if user_input := st.chat_input("Ask about this company..."):
             st.session_state["chat_messages"].append({"role": "user", "content": user_input})
-            
+
             with st.chat_message("user"):
                 st.markdown(user_input)
 
@@ -1120,10 +1188,12 @@ def main():
             recent_history = []
             for i in range(0, len(st.session_state["chat_messages"]) - 1, 2):
                 if i + 1 < len(st.session_state["chat_messages"]):
-                    recent_history.append({
-                        "question": st.session_state["chat_messages"][i]["content"],
-                        "answer": st.session_state["chat_messages"][i + 1]["content"],
-                    })
+                    recent_history.append(
+                        {
+                            "question": st.session_state["chat_messages"][i]["content"],
+                            "answer": st.session_state["chat_messages"][i + 1]["content"],
+                        }
+                    )
 
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
