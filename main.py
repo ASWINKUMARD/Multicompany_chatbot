@@ -783,7 +783,17 @@ ANSWER:"""
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
 
-           prompt = self.qa_prompt.format(
+    <div class="header-container">
+        <h1 class="header-title">💬 Chat with {c.company_name}</h1>
+        <p style="color: white; margin-top: 0.5rem;">Ask me anything about the company!</p>
+    </div>
+    """, unsafe_allow_html=True)
+"""
+PART 2 CONTINUED: Complete the CompanyAI class and add Streamlit UI
+"""
+
+            # Build prompt (continuing from Part 1)
+            prompt = self.qa_prompt.format(
                 company_name=company_name,
                 context=context[:4000],  # Limit context size
                 chat_history=history_text,
