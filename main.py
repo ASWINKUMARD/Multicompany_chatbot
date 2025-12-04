@@ -1,17 +1,23 @@
 """
 COMPLETE AI CHATBOT SYSTEM - ALL-IN-ONE FILE
-Multi-company chatbot with web scraping, RAG, and Streamlit UI
+Multi-company chatbot with web scraping, RAG (FAISS), and Streamlit UI
 
 Run with:
     streamlit run app.py
 """
 
 # =============================================================================
-# SQLITE FIX FOR SOME HOSTING ENVIRONMENTS (STREAMLIT, COLAB, ETC.)
+# OPTIONAL SQLITE PATCH (mostly for local Windows / Colab)
+# On Streamlit Cloud this will usually fall back to default sqlite3.
 # =============================================================================
-__import__("pysqlite3")
 import sys
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+
+try:
+    import pysqlite3  # type: ignore
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except ImportError:
+    # Use built-in sqlite3
+    import sqlite3  # noqa: F401
 
 # =============================================================================
 # IMPORTS
@@ -32,16 +38,16 @@ import time
 from typing import Optional, Dict, List, Tuple
 import shutil
 
-# Compatible LangChain imports
+# LangChain & FAISS
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
     from langchain.text_splitters import RecursiveCharacterTextSplitter
 
 try:
-    from langchain_community.vectorstores import Chroma
+    from langchain_community.vectorstores import FAISS
 except ImportError:
-    from langchain.vectorstores import Chroma
+    from langchain.vectorstores import FAISS  # older LC versions
 
 try:
     from langchain_huggingface import HuggingFaceEmbeddings
@@ -63,6 +69,7 @@ try:
     from langchain_core.prompts import PromptTemplate
 except ImportError:
     from langchain.prompts import PromptTemplate
+
 
 # =============================================================================
 # DATABASE CONFIGURATION
@@ -149,9 +156,11 @@ def create_slug(company_name: str) -> str:
     return slug.strip("-")
 
 
-def get_chroma_directory(company_slug: str) -> str:
-    """Get ChromaDB directory path"""
-    return f"./chroma_db/{company_slug}"
+def get_faiss_directory(company_slug: str) -> str:
+    """Directory to store FAISS index for this company"""
+    base_dir = "./faiss_db"
+    os.makedirs(base_dir, exist_ok=True)
+    return os.path.join(base_dir, company_slug)
 
 
 # =============================================================================
@@ -431,7 +440,11 @@ class WebScraper:
 # =============================================================================
 
 
-def create_company(company_name: str, website_url: str, max_pages: int = 40) -> Optional[str]:
+def create_company(
+    company_name: str,
+    website_url: str,
+    max_pages: int = 40,
+) -> Optional[str]:
     """Create new company"""
     db = SessionLocal()
     try:
@@ -461,7 +474,11 @@ def create_company(company_name: str, website_url: str, max_pages: int = 40) -> 
         db.close()
 
 
-def update_company_after_scraping(slug: str, company_info: Dict, status: str = "completed"):
+def update_company_after_scraping(
+    slug: str,
+    company_info: Dict,
+    status: str = "completed",
+):
     """Update company after scraping"""
     db = SessionLocal()
     try:
@@ -500,7 +517,12 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
         db.close()
 
 
-def save_chat_message(company_slug: str, question: str, answer: str, session_id: str):
+def save_chat_message(
+    company_slug: str,
+    question: str,
+    answer: str,
+    session_id: str,
+):
     """Save chat message to DB"""
     db = SessionLocal()
     try:
@@ -532,7 +554,6 @@ def get_chat_history(
             q = q.filter(ChatHistory.session_id == session_id)
 
         rows = q.order_by(ChatHistory.timestamp.desc()).limit(limit).all()
-        # Return in chronological order
         rows = list(reversed(rows))
 
         history = []
@@ -550,12 +571,12 @@ def get_chat_history(
 
 
 # =============================================================================
-# AI ENGINE CLASS
+# AI ENGINE CLASS (FAISS VERSION)
 # =============================================================================
 
 
 class CompanyAI:
-    """AI Engine with RAG"""
+    """AI Engine with RAG using FAISS"""
 
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -592,8 +613,13 @@ ANSWER (2-5 sentences):"""
     # -------------------------------------------------------------------------
     # INITIALIZATION / LOADING
     # -------------------------------------------------------------------------
-    def initialize(self, website_url: str, max_pages: int = 40, progress_callback=None):
-        """Initialize by scraping and creating vector store"""
+    def initialize(
+        self,
+        website_url: str,
+        max_pages: int = 40,
+        progress_callback=None,
+    ):
+        """Initialize by scraping and creating FAISS vector store"""
         try:
             if progress_callback:
                 progress_callback(0, max_pages, "Starting scraper...")
@@ -607,6 +633,11 @@ ANSWER (2-5 sentences):"""
 
             if len(documents) < 3:
                 self.status["error"] = f"Not enough content: {len(documents)} pages"
+                update_company_after_scraping(
+                    self.company_slug,
+                    {**company_info, "pages_scraped": company_info.get("pages_scraped", 0)},
+                    status="failed",
+                )
                 return False
 
             self.company_data = company_info
@@ -625,37 +656,35 @@ ANSWER (2-5 sentences):"""
 
             if len(split_docs) < 5:
                 self.status["error"] = f"Not enough chunks: {len(split_docs)}"
+                update_company_after_scraping(
+                    self.company_slug,
+                    {**company_info, "pages_scraped": company_info.get("pages_scraped", 0)},
+                    status="failed",
+                )
                 return False
 
             if progress_callback:
                 progress_callback(max_pages, max_pages, "Creating embeddings...")
 
-            # Force CPU to avoid meta-tensor device issues
+            # CPU-only embeddings to avoid meta-tensor issues
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={"device": "cpu"},
                 encode_kwargs={"normalize_embeddings": True},
             )
 
-            chroma_dir = get_chroma_directory(self.company_slug)
-
-            if os.path.exists(chroma_dir):
-                shutil.rmtree(chroma_dir)
-
-            os.makedirs(chroma_dir, exist_ok=True)
+            faiss_dir = get_faiss_directory(self.company_slug)
+            if os.path.exists(faiss_dir):
+                shutil.rmtree(faiss_dir)
+            os.makedirs(faiss_dir, exist_ok=True)
 
             if progress_callback:
-                progress_callback(max_pages, max_pages, "Building vector database...")
+                progress_callback(max_pages, max_pages, "Building FAISS index...")
 
-            self.vectorstore = Chroma.from_documents(
-                documents=split_docs,
-                embedding=self.embeddings,
-                persist_directory=chroma_dir,
-                collection_name="company_knowledge",
-            )
+            self.vectorstore = FAISS.from_documents(split_docs, self.embeddings)
 
-            if self.vectorstore._collection.count() == 0:
-                raise Exception("Vectorstore is empty")
+            # Persist FAISS index
+            self.vectorstore.save_local(faiss_dir)
 
             self.retriever = self.vectorstore.as_retriever(
                 search_type="mmr",
@@ -667,7 +696,6 @@ ANSWER (2-5 sentences):"""
             if progress_callback:
                 progress_callback(max_pages, max_pages, "✅ Chatbot Ready!")
 
-            # Save scraped info to DB
             update_company_after_scraping(
                 self.company_slug,
                 {**company_info, "pages_scraped": company_info.get("pages_scraped", 0)},
@@ -686,23 +714,23 @@ ANSWER (2-5 sentences):"""
             update_company_after_scraping(
                 self.company_slug,
                 {
-                    "emails": company_info.get("emails", []) if "company_info" in locals() else [],
-                    "phones": company_info.get("phones", []) if "company_info" in locals() else [],
-                    "address_india": company_info.get("address_india") if "company_info" in locals() else None,
-                    "address_international": company_info.get("address_international") if "company_info" in locals() else None,
-                    "pages_scraped": company_info.get("pages_scraped", 0) if "company_info" in locals() else 0,
+                    "emails": [],
+                    "phones": [],
+                    "address_india": None,
+                    "address_international": None,
+                    "pages_scraped": 0,
                 },
                 status="failed",
             )
             return False
 
     def load_existing(self):
-        """Load existing vector store"""
+        """Load existing FAISS vector store from disk"""
         try:
-            chroma_dir = get_chroma_directory(self.company_slug)
-
-            if not os.path.exists(chroma_dir):
-                self.status["error"] = "Chatbot data not found"
+            faiss_dir = get_faiss_directory(self.company_slug)
+            index_file = os.path.join(faiss_dir, "index.faiss")
+            if not os.path.exists(index_file):
+                self.status["error"] = "Chatbot data not found (FAISS index missing)"
                 return False
 
             self.embeddings = HuggingFaceEmbeddings(
@@ -711,15 +739,15 @@ ANSWER (2-5 sentences):"""
                 encode_kwargs={"normalize_embeddings": True},
             )
 
-            self.vectorstore = Chroma(
-                persist_directory=chroma_dir,
-                embedding_function=self.embeddings,
-                collection_name="company_knowledge",
-            )
-
-            if self.vectorstore._collection.count() == 0:
-                self.status["error"] = "Empty vectorstore"
-                return False
+            # Compatibility with different LC versions
+            try:
+                self.vectorstore = FAISS.load_local(
+                    faiss_dir,
+                    self.embeddings,
+                    allow_dangerous_deserialization=True,
+                )
+            except TypeError:
+                self.vectorstore = FAISS.load_local(faiss_dir, self.embeddings)
 
             self.retriever = self.vectorstore.as_retriever(
                 search_type="mmr",
@@ -774,11 +802,19 @@ ANSWER (2-5 sentences):"""
     # -------------------------------------------------------------------------
     # MAIN Q&A
     # -------------------------------------------------------------------------
-    def ask(self, question: str, chat_history: List = None, session_id: str = None) -> str:
+    def ask(
+        self,
+        question: str,
+        chat_history: List = None,
+        session_id: str = None,
+    ) -> str:
         """Answer question using RAG"""
         try:
             if not self.status.get("ready", False):
-                return "⚠️ System is initializing or not ready. Please try again after initialization completes."
+                return (
+                    "⚠️ System is initializing or not ready. "
+                    "Please initialize or re-scrape from the sidebar."
+                )
 
             if not self.retriever:
                 return "⚠️ Chatbot not properly initialized. Please try reloading or re-scraping."
@@ -793,7 +829,15 @@ ANSWER (2-5 sentences):"""
                 return f"👋 Hello! I'm here to answer questions about {company_name}. How can I help you today?"
 
             # Direct contact info requests
-            contact_keywords = ["email", "contact", "phone", "address", "office", "location", "reach"]
+            contact_keywords = [
+                "email",
+                "contact",
+                "phone",
+                "address",
+                "office",
+                "location",
+                "reach",
+            ]
             if any(keyword in q_lower for keyword in contact_keywords):
                 return self.get_contact_info()
 
@@ -802,7 +846,6 @@ ANSWER (2-5 sentences):"""
             # Retrieve relevant docs
             print("Retrieving relevant documents...")
             try:
-                # Newer LC retrievers use .invoke; older use .get_relevant_documents
                 if hasattr(self.retriever, "invoke"):
                     relevant_docs = self.retriever.invoke(question)
                 else:
@@ -882,9 +925,12 @@ ANSWER (2-5 sentences):"""
     # -------------------------------------------------------------------------
     def _call_llm(self, prompt: str, max_retries: int = 3) -> str:
         """Call LLM API"""
-        if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "":
+        if not OPENROUTER_API_KEY:
             print("ERROR: OPENROUTER_API_KEY not set!")
-            return "⚠️ API key not configured. Please set OPENROUTER_API_KEY environment variable on the server."
+            return (
+                "⚠️ API key not configured. Please set OPENROUTER_API_KEY environment variable "
+                "on the server or Streamlit Cloud."
+            )
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -933,7 +979,6 @@ ANSWER (2-5 sentences):"""
                         print(f"No choices in response: {result}")
 
                 elif response.status_code == 429:
-                    # Rate limited
                     print("Rate limited, waiting before retry...")
                     if attempt < max_retries - 1:
                         time.sleep(3)
@@ -976,12 +1021,7 @@ ANSWER (2-5 sentences):"""
                         "Please try again."
                     )
 
-        # If all attempts somehow exit without returning:
         return "⚠️ Could not get a response from the AI model after multiple attempts."
-
-    # -------------------------------------------------------------------------
-    # UTILS
-    # -------------------------------------------------------------------------
 
 
 # =============================================================================
@@ -996,7 +1036,7 @@ def init_session_state():
         ).hexdigest()[:12]
 
     if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = []  # list of dicts {"role": "user"/"assistant", "content": str}
+        st.session_state["chat_messages"] = []
 
     if "current_company_slug" not in st.session_state:
         st.session_state["current_company_slug"] = None
@@ -1012,11 +1052,9 @@ def get_ai_for_company(slug: str) -> Optional[CompanyAI]:
     if slug not in st.session_state["ai_engines"]:
         ai = CompanyAI(slug)
         loaded = ai.load_existing()
+        st.session_state["ai_engines"][slug] = ai
         if not loaded:
-            # Keep instance for potential re-init; status will show error
-            st.session_state["ai_engines"][slug] = ai
-        else:
-            st.session_state["ai_engines"][slug] = ai
+            print(f"FAISS index not yet built for {slug}")
 
     return st.session_state["ai_engines"].get(slug)
 
@@ -1028,20 +1066,33 @@ def render_sidebar():
 
     with st.sidebar.expander("➕ Add New Company", expanded=False):
         name = st.text_input("Company Name", key="new_company_name")
-        url = st.text_input("Website URL", key="new_company_url", placeholder="https://example.com")
-        max_pages = st.slider("Max pages to scrape", 5, 80, 40, key="new_company_max_pages")
+        url = st.text_input(
+            "Website URL",
+            key="new_company_url",
+            placeholder="https://example.com",
+        )
+        max_pages = st.slider(
+            "Max pages to scrape",
+            5,
+            80,
+            40,
+            key="new_company_max_pages",
+        )
 
         if st.button("Create Company", key="create_company_btn"):
             if not name or not url:
                 st.warning("Please provide both company name and website URL.")
             else:
-                slug = create_company(name.strip(), url.strip(), max_pages=max_pages)
+                slug = create_company(
+                    name.strip(),
+                    url.strip(),
+                    max_pages=max_pages,
+                )
                 if slug is None:
                     st.error("A company with that name already exists.")
                 else:
                     st.success(f"Company created with slug: {slug}")
                     st.session_state["current_company_slug"] = slug
-                    # Reset cached AI for this slug (will be created on demand)
                     if slug in st.session_state["ai_engines"]:
                         del st.session_state["ai_engines"][slug]
 
@@ -1052,8 +1103,7 @@ def render_sidebar():
         return None, None, None
 
     slug_to_label = {
-        c.company_slug: f"{c.company_name} ({c.company_slug})"
-        for c in companies
+        c.company_slug: f"{c.company_name} ({c.company_slug})" for c in companies
     }
     slug_list = list(slug_to_label.keys())
     label_list = [slug_to_label[s] for s in slug_list]
@@ -1084,17 +1134,24 @@ def render_sidebar():
         else:
             st.info("Company not found in DB")
 
-    reinit = st.sidebar.button("🔄 Re-scrape & Rebuild Chatbot", key="rescrape_btn")
+    reinit = st.sidebar.button(
+        "🔄 Re-scrape & Rebuild Chatbot",
+        key="rescrape_btn",
+    )
 
     return selected_slug, selected_company, reinit
 
 
 def main():
-    st.set_page_config(page_title="Multi-Company AI Chatbot", page_icon="🤖", layout="wide")
+    st.set_page_config(
+        page_title="Multi-Company AI Chatbot (FAISS)",
+        page_icon="🤖",
+        layout="wide",
+    )
     init_session_state()
 
-    st.title("🤖 Multi-Company AI Chatbot")
-    st.caption("Web scraping + RAG + OpenRouter LLM + Streamlit UI")
+    st.title("🤖 Multi-Company AI Chatbot (FAISS)")
+    st.caption("Web scraping + RAG (FAISS) + OpenRouter LLM + Streamlit UI")
 
     if not OPENROUTER_API_KEY:
         st.warning(
@@ -1118,7 +1175,6 @@ def main():
             ai = get_ai_for_company(selected_slug)
 
             if reinit:
-                # Force fresh AI + scrape
                 progress = st.progress(0)
                 status_text = st.empty()
 
@@ -1133,7 +1189,13 @@ def main():
 
                 update_company_after_scraping(
                     selected_slug,
-                    {"emails": [], "phones": [], "address_india": None, "address_international": None, "pages_scraped": 0},
+                    {
+                        "emails": [],
+                        "phones": [],
+                        "address_india": None,
+                        "address_international": None,
+                        "pages_scraped": 0,
+                    },
                     status="running",
                 )
 
@@ -1156,11 +1218,14 @@ def main():
                     if st.button("Retry Load Existing Data", key="retry_load_btn"):
                         loaded = ai.load_existing()
                         if loaded:
-                            st.success("Loaded existing vector store successfully.")
+                            st.success("Loaded existing FAISS index successfully.")
                         else:
                             st.error(f"Load failed: {ai.status.get('error')}")
                 else:
-                    if st.button("Initialize from Website Content", key="init_from_website_btn"):
+                    if st.button(
+                        "Initialize from Website Content",
+                        key="init_from_website_btn",
+                    ):
                         progress = st.progress(0)
                         status_text = st.empty()
 
@@ -1196,7 +1261,6 @@ def main():
                         else:
                             st.error(f"Initialization failed: {ai.status.get('error')}")
 
-            # Contact info preview
             if ai and ai.company_data:
                 with st.expander("📞 Contact Info (Detected)", expanded=False):
                     st.markdown(ai.get_contact_info())
@@ -1220,14 +1284,13 @@ def main():
             )
             return
 
-        # Load history from DB to show (optional). We still keep session_state for live chat.
+        # Load DB history for this session if chat is empty
         db_history = get_chat_history(
             selected_slug,
             st.session_state["session_id"],
             limit=20,
         )
 
-        # Merge DB history into UI messages if not yet loaded this session
         if not st.session_state["chat_messages"] and db_history:
             for msg in db_history:
                 st.session_state["chat_messages"].append(
@@ -1238,33 +1301,30 @@ def main():
                 )
 
         # Display conversation
-        for i, msg in enumerate(st.session_state["chat_messages"]):
+        for msg in st.session_state["chat_messages"]:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
         # Chat input
         user_input = st.chat_input("Ask something about this company...")
         if user_input:
-            # Show user message
             st.session_state["chat_messages"].append(
                 {"role": "user", "content": user_input}
             )
             with st.chat_message("user"):
                 st.markdown(user_input)
 
-            # Get a short recent history for context
+            # Build recent history pairs (user -> assistant)
             recent_history = []
-            for m in st.session_state["chat_messages"]:
-                if m["role"] == "user":
-                    # look ahead for assistant
-                    idx = st.session_state["chat_messages"].index(m)
-                    if idx + 1 < len(st.session_state["chat_messages"]) and st.session_state["chat_messages"][idx + 1]["role"] == "assistant":
-                        recent_history.append(
-                            {
-                                "question": m["content"],
-                                "answer": st.session_state["chat_messages"][idx + 1]["content"],
-                            }
-                        )
+            msgs = st.session_state["chat_messages"]
+            for i in range(len(msgs) - 1):
+                if msgs[i]["role"] == "user" and msgs[i + 1]["role"] == "assistant":
+                    recent_history.append(
+                        {
+                            "question": msgs[i]["content"],
+                            "answer": msgs[i + 1]["content"],
+                        }
+                    )
 
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
