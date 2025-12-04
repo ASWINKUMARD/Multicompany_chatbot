@@ -43,6 +43,13 @@ except ImportError:
     except ImportError:
         from langchain.schema import Document
 
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    from langchain.prompts import PromptTemplate
+
+import streamlit as st
+
 # Database setup
 DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -483,13 +490,6 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
     finally:
         db.close()
 
-import streamlit as st
-
-try:
-    from langchain_core.prompts import PromptTemplate
-except ImportError:
-    from langchain.prompts import PromptTemplate
-
 
 class CompanyAI:
     """AI Engine with RAG for answering questions"""
@@ -782,17 +782,8 @@ ANSWER:"""
             # Get company name
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
-
-    <div class="header-container">
-        <h1 class="header-title"> Chat with {c.company_name}</h1>
-        <p style="color: white; margin-top: 0.5rem;">Ask me anything about the company!</p>
-    </div>
-    """, unsafe_allow_html=True)
-"""
-PART 2 CONTINUED: Complete the CompanyAI class and add Streamlit UI
-"""
-
-            # Build prompt (continuing from Part 1)
+            
+            # Build prompt
             prompt = self.qa_prompt.format(
                 company_name=company_name,
                 context=context[:4000],  # Limit context size
