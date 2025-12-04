@@ -784,7 +784,7 @@ ANSWER:"""
             company_name = company.company_name if company else "the company"
 
     <div class="header-container">
-        <h1 class="header-title">💬 Chat with {c.company_name}</h1>
+        <h1 class="header-title"> Chat with {c.company_name}</h1>
         <p style="color: white; margin-top: 0.5rem;">Ask me anything about the company!</p>
     </div>
     """, unsafe_allow_html=True)
