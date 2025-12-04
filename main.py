@@ -783,7 +783,7 @@ ANSWER:"""
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
 
-  prompt = self.qa_prompt.format(
+           prompt = self.qa_prompt.format(
                 company_name=company_name,
                 context=context[:4000],  # Limit context size
                 chat_history=history_text,
