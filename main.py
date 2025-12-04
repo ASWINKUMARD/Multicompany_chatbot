@@ -1,3 +1,8 @@
+"""
+OPTIMIZED MULTI-COMPANY AI CHATBOT - PART 1 (main.py)
+Save this as: main.py
+"""
+
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -126,7 +131,7 @@ def get_chroma_directory(company_slug: str) -> str:
 
 
 class WebScraper:
-    """Web scraper with content extraction"""
+    """Web scraper with content extraction - OPTIMIZED"""
     
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -216,7 +221,7 @@ class WebScraper:
         
         try:
             if soup.find('title'):
-                content_dict['title'] = soup.find('title').get_text(strip=True)
+                content_dict['title'] = soup.find('title').get_text(strip=True)[:200]  # CHANGED: Added limit
             
             meta_desc = soup.find('meta', attrs={"name": "description"})
             if meta_desc and meta_desc.get("content"):
@@ -322,18 +327,24 @@ class WebScraper:
                     )
                     documents.append(doc)
                 
-                for link in soup.find_all("a", href=True):
-                    try:
-                        next_url = urljoin(url, link['href'])
-                        next_url = next_url.split("#")[0].split("?")[0].rstrip('/')
-                        
-                        if next_url not in visited and self.is_valid_url(next_url, base_domain):
-                            if next_url not in queue:
-                                queue.append(next_url)
-                    except:
-                        pass
+                # CHANGED: Added link limit to prevent infinite loops
+                if len(visited) < max_pages:
+                    links_found = 0
+                    for link in soup.find_all("a", href=True):
+                        if links_found >= 50:  # Limit links per page
+                            break
+                        try:
+                            next_url = urljoin(url, link['href'])
+                            next_url = next_url.split("#")[0].split("?")[0].rstrip('/')
+                            
+                            if next_url not in visited and self.is_valid_url(next_url, base_domain):
+                                if next_url not in queue:
+                                    queue.append(next_url)
+                                    links_found += 1
+                        except:
+                            pass
                 
-                time.sleep(0.3)
+                time.sleep(0.2)  # CHANGED: Reduced from 0.3 to 0.2
             
             except Exception as e:
                 self.debug_info.append(f"Error {url}: {str(e)[:50]}")
@@ -419,7 +430,10 @@ def get_company_by_slug(slug: str) -> Optional[Company]:
     finally:
         db.close()
 """
-MULTI-COMPANY AI CHATBOT - AI ENGINE + STREAMLIT UI
+OPTIMIZED MULTI-COMPANY AI CHATBOT - PART 2 (app.py)
+Save this as: app.py
+
+Run with: streamlit run app.py
 """
 
 import streamlit as st
@@ -473,7 +487,7 @@ from main import (
 
 
 class CompanyAI:
-    """AI Engine with RAG for answering questions"""
+    """AI Engine with RAG for answering questions - OPTIMIZED"""
     
     def __init__(self, company_slug: str):
         self.company_slug = company_slug
@@ -529,9 +543,10 @@ ANSWER (2-5 sentences):"""
             if progress_callback:
                 progress_callback(max_pages, max_pages, "Processing documents...")
             
+            # CHANGED: Reduced chunk size and overlap
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200,
+                chunk_size=800,  # Changed from 1000
+                chunk_overlap=150,  # Changed from 200
                 separators=["\n\n", "\n", ". ", "! ", "? ", ", ", " "],
                 length_function=len
             )
@@ -571,13 +586,10 @@ ANSWER (2-5 sentences):"""
             if self.vectorstore._collection.count() == 0:
                 raise Exception("Vectorstore is empty")
             
+            # CHANGED: Simplified retriever for faster search
             self.retriever = self.vectorstore.as_retriever(
-                search_type="mmr",
-                search_kwargs={
-                    "k": 6,
-                    "fetch_k": 15,
-                    "lambda_mult": 0.7
-                }
+                search_type="similarity",  # Changed from "mmr"
+                search_kwargs={"k": 5}  # Changed from complex kwargs
             )
             
             self.status["ready"] = True
@@ -619,13 +631,10 @@ ANSWER (2-5 sentences):"""
                 self.status["error"] = "Empty vectorstore"
                 return False
             
+            # CHANGED: Simplified retriever
             self.retriever = self.vectorstore.as_retriever(
-                search_type="mmr",
-                search_kwargs={
-                    "k": 6,
-                    "fetch_k": 15,
-                    "lambda_mult": 0.7
-                }
+                search_type="similarity",
+                search_kwargs={"k": 5}
             )
             
             company = get_company_by_slug(self.company_slug)
@@ -715,16 +724,16 @@ ANSWER (2-5 sentences):"""
             if not relevant_docs or len(relevant_docs) == 0:
                 return "I couldn't find specific information about that. Could you rephrase your question?"
             
-            # Build context
+            # Build context - CHANGED: Reduced from 5 to 4 docs, 500 to 400 chars
             context_parts = []
-            for i, doc in enumerate(relevant_docs[:5]):
+            for i, doc in enumerate(relevant_docs[:4]):  # Changed from [:5]
                 if hasattr(doc, 'page_content') and doc.page_content:
-                    source = doc.metadata.get('source', 'unknown')
                     title = doc.metadata.get('title', '')
+                    content = doc.page_content[:400]  # Changed from [:500]
                     
-                    context_part = f"[From: {title if title else source}]\n{doc.page_content[:500]}"
+                    context_part = f"[{title}]\n{content}" if title else content
                     context_parts.append(context_part)
-                    print(f"Doc {i+1}: {len(doc.page_content)} chars from {source}")
+                    print(f"Doc {i+1}: {len(doc.page_content)} chars")
             
             if not context_parts:
                 return "I found documents but couldn't extract content. Please try again."
@@ -744,10 +753,10 @@ ANSWER (2-5 sentences):"""
             company = get_company_by_slug(self.company_slug)
             company_name = company.company_name if company else "the company"
             
-            # Build prompt
+            # Build prompt - CHANGED: Reduced context size
             prompt = self.qa_prompt.format(
                 company_name=company_name,
-                context=context[:4000],  # Limit context size
+                context=context[:3000],  # Changed from [:4000]
                 chat_history=history_text,
                 question=question
             )
@@ -774,7 +783,7 @@ ANSWER (2-5 sentences):"""
             traceback.print_exc()
             return f"⚠️ An error occurred. Please try again or reload the page."
     
-    def _call_llm(self, prompt: str, max_retries: int = 3) -> str:
+    def _call_llm(self, prompt: str, max_retries: int = 2) -> str:  # CHANGED: From 3 to 2
         """Call LLM API"""
         if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "":
             print("ERROR: OPENROUTER_API_KEY not set!")
@@ -885,6 +894,7 @@ ANSWER (2-5 sentences):"""
         finally:
             db.close()
 
+
 # ============================================================================
 # STREAMLIT UI
 # ============================================================================
@@ -985,7 +995,7 @@ elif st.session_state.page == "create":
         url = st.text_input("Website URL *", placeholder="e.g., https://example.com", key="form_url")
         pages = st.slider("Max Pages to Scrape", 10, 60, 40, 10, key="form_pages")
         
-        st.caption("⚠️ This process may take 2-5 minutes depending on website size")
+        st.caption("⚠️ This process may take 1-2 minutes depending on website size")
         
         submitted = st.form_submit_button("🚀 Create Chatbot", type="primary", use_container_width=True)
         
@@ -1079,7 +1089,6 @@ elif st.session_state.page == "list":
             st.markdown('</div>', unsafe_allow_html=True)
 
 # CHAT PAGE
-# CHAT PAGE - Replace your existing chat page code with this
 elif st.session_state.page == "chat":
     if not st.session_state.current_company:
         st.error("No company selected")
