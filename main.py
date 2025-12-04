@@ -670,92 +670,109 @@ ANSWER (2-5 sentences):"""
         
         return msg.strip()
     
-def ask(self, question: str, chat_history: List = None, session_id: str = None) -> str:
-    """Answer question using RAG"""
-    if not self.status["ready"]:
-        return "⚠️ System is initializing. Please wait..."
-    
-    q_lower = question.lower().strip()
-    
-    greetings = ["hi", "hello", "hey", "hai"]
-    if q_lower in greetings or len(q_lower) < 5:
-        company = get_company_by_slug(self.company_slug)
-        company_name = company.company_name if company else "our company"
-        return f"Hello! 👋 I'm here to answer questions about {company_name}. How can I help you today?"
-    
-    contact_keywords = ["email", "contact", "phone", "address", "office", "location", "reach"]
-    if any(keyword in q_lower for keyword in contact_keywords):
-        return self.get_contact_info()
-    
-    try:
-        print(f"\n=== Processing question: {question} ===")
+    def ask(self, question: str, chat_history: List = None, session_id: str = None) -> str:
+        """Answer question using RAG"""
+        try:
+            # Check if system is ready
+            if not self.status.get("ready", False):
+                return "⚠️ System is initializing. Please wait..."
+            
+            # Check if retriever exists
+            if not self.retriever:
+                return "⚠️ Chatbot not properly initialized. Please try reloading."
+            
+            q_lower = question.lower().strip()
+            
+            # Handle greetings
+            greetings = ["hi", "hello", "hey", "hai"]
+            if q_lower in greetings or len(q_lower) < 5:
+                company = get_company_by_slug(self.company_slug)
+                company_name = company.company_name if company else "our company"
+                return f"Hello! 👋 I'm here to answer questions about {company_name}. How can I help you today?"
+            
+            # Handle contact requests
+            contact_keywords = ["email", "contact", "phone", "address", "office", "location", "reach"]
+            if any(keyword in q_lower for keyword in contact_keywords):
+                return self.get_contact_info()
+            
+            print(f"\n=== Processing question: {question} ===")
+            
+            # Retrieve relevant documents - FIXED: Use invoke() for newer LangChain versions
+            print("Retrieving relevant documents...")
+            try:
+                # Try the new invoke method first
+                relevant_docs = self.retriever.invoke(question)
+            except AttributeError:
+                # Fallback to old method if invoke doesn't exist
+                try:
+                    relevant_docs = self.retriever.get_relevant_documents(question)
+                except Exception as e:
+                    print(f"Retrieval error: {e}")
+                    return "⚠️ Error retrieving information. Please try again."
+            
+            print(f"Found {len(relevant_docs)} relevant documents")
+            
+            if not relevant_docs or len(relevant_docs) == 0:
+                return "I couldn't find specific information about that. Could you rephrase your question?"
+            
+            # Build context
+            context_parts = []
+            for i, doc in enumerate(relevant_docs[:5]):
+                if hasattr(doc, 'page_content') and doc.page_content:
+                    source = doc.metadata.get('source', 'unknown')
+                    title = doc.metadata.get('title', '')
+                    
+                    context_part = f"[From: {title if title else source}]\n{doc.page_content[:500]}"
+                    context_parts.append(context_part)
+                    print(f"Doc {i+1}: {len(doc.page_content)} chars from {source}")
+            
+            if not context_parts:
+                return "I found documents but couldn't extract content. Please try again."
+            
+            context = "\n\n---\n\n".join(context_parts)
+            print(f"Total context length: {len(context)} chars")
+            
+            # Format chat history
+            history_text = ""
+            if chat_history:
+                history_text = "\n".join([
+                    f"User: {msg['question']}\nAssistant: {msg['answer']}" 
+                    for msg in chat_history[-3:]
+                ])
+            
+            # Get company name
+            company = get_company_by_slug(self.company_slug)
+            company_name = company.company_name if company else "the company"
+            
+            # Build prompt
+            prompt = self.qa_prompt.format(
+                company_name=company_name,
+                context=context[:4000],  # Limit context size
+                chat_history=history_text,
+                question=question
+            )
+            
+            print(f"Prompt length: {len(prompt)} chars")
+            print("Calling LLM...")
+            
+            # Call LLM
+            answer = self._call_llm(prompt)
+            
+            print(f"Answer received: {answer[:100] if answer else 'None'}...")
+            
+            if answer and not answer.startswith("⚠️"):
+                self.save_chat(question, answer, session_id)
+                return answer
+            elif answer:
+                return answer  # Return error message
+            else:
+                return "I'm having trouble generating a response. Please try again."
         
-        # Retrieve relevant documents - FIXED: Use invoke() instead of get_relevant_documents()
-        print("Retrieving relevant documents...")
-        relevant_docs = self.retriever.invoke(question)  # Changed from get_relevant_documents
-        print(f"Found {len(relevant_docs)} relevant documents")
-        
-        if not relevant_docs or len(relevant_docs) == 0:
-            return "I couldn't find specific information about that. Could you rephrase your question?"
-        
-        # Build context
-        context_parts = []
-        for i, doc in enumerate(relevant_docs[:5]):
-            if hasattr(doc, 'page_content') and doc.page_content:
-                source = doc.metadata.get('source', 'unknown')
-                title = doc.metadata.get('title', '')
-                
-                context_part = f"[From: {title if title else source}]\n{doc.page_content[:500]}"
-                context_parts.append(context_part)
-                print(f"Doc {i+1}: {len(doc.page_content)} chars from {source}")
-        
-        if not context_parts:
-            return "I found documents but couldn't extract content. Please try again."
-        
-        context = "\n\n---\n\n".join(context_parts)
-        print(f"Total context length: {len(context)} chars")
-        
-        # Format chat history
-        history_text = ""
-        if chat_history:
-            history_text = "\n".join([
-                f"User: {msg['question']}\nAssistant: {msg['answer']}" 
-                for msg in chat_history[-3:]
-            ])
-        
-        # Get company name
-        company = get_company_by_slug(self.company_slug)
-        company_name = company.company_name if company else "the company"
-        
-        # Build prompt
-        prompt = self.qa_prompt.format(
-            company_name=company_name,
-            context=context[:4000],  # Limit context size
-            chat_history=history_text,
-            question=question
-        )
-        
-        print(f"Prompt length: {len(prompt)} chars")
-        print("Calling LLM...")
-        
-        # Call LLM
-        answer = self._call_llm(prompt)
-        
-        print(f"Answer received: {answer[:100] if answer else 'None'}...")
-        
-        if answer and not answer.startswith("⚠️"):
-            self.save_chat(question, answer, session_id)
-            return answer
-        elif answer:
-            return answer  # Return error message
-        else:
-            return "I'm having trouble generating a response. Please try again."
-    
-    except Exception as e:
-        print(f"ERROR in ask(): {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return f"An error occurred: {str(e)[:100]}. Please try again."
+        except Exception as e:
+            print(f"ERROR in ask(): {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return f"⚠️ An error occurred. Please try again or reload the page."
     
     def _call_llm(self, prompt: str, max_retries: int = 3) -> str:
         """Call LLM API"""
@@ -867,7 +884,6 @@ def ask(self, question: str, chat_history: List = None, session_id: str = None) 
             db.rollback()
         finally:
             db.close()
-
 
 # ============================================================================
 # STREAMLIT UI
@@ -1063,6 +1079,7 @@ elif st.session_state.page == "list":
             st.markdown('</div>', unsafe_allow_html=True)
 
 # CHAT PAGE
+# CHAT PAGE - Replace your existing chat page code with this
 elif st.session_state.page == "chat":
     if not st.session_state.current_company:
         st.error("No company selected")
@@ -1080,16 +1097,27 @@ elif st.session_state.page == "chat":
             st.rerun()
         st.stop()
     
+    # Load AI instance if not already loaded
     if not st.session_state.ai_instance:
         with st.spinner("Loading chatbot..."):
-            ai = CompanyAI(st.session_state.current_company)
-            if not ai.load_existing():
-                st.error(f"Failed to load chatbot: {ai.status.get('error', 'Unknown error')}")
+            try:
+                ai = CompanyAI(st.session_state.current_company)
+                if not ai.load_existing():
+                    st.error(f"Failed to load chatbot: {ai.status.get('error', 'Unknown error')}")
+                    if st.button("← Go Back"):
+                        st.session_state.page = "list"
+                        st.rerun()
+                    st.stop()
+                st.session_state.ai_instance = ai
+                st.success("✅ Chatbot loaded successfully!")
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error loading chatbot: {str(e)}")
                 if st.button("← Go Back"):
                     st.session_state.page = "list"
                     st.rerun()
                 st.stop()
-            st.session_state.ai_instance = ai
     
     st.markdown(f"""
     <div class="header-container">
@@ -1098,6 +1126,15 @@ elif st.session_state.page == "chat":
     </div>
     """, unsafe_allow_html=True)
     
+    # Back button
+    if st.button("← Back to List"):
+        st.session_state.page = "list"
+        st.session_state.current_company = None
+        st.session_state.ai_instance = None
+        st.session_state.messages = []
+        st.session_state.chat_history = []
+        st.rerun()
+    
     # Display chat messages
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -1105,20 +1142,34 @@ elif st.session_state.page == "chat":
     
     # Chat input
     if prompt := st.chat_input("Ask a question...", key="chat_input_main"):
+        # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         
         with st.chat_message("user"):
             st.markdown(prompt)
         
+        # Get AI response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                answer = st.session_state.ai_instance.ask(
-                    prompt,
-                    st.session_state.chat_history,
-                    st.session_state.session_id
-                )
+                try:
+                    # Ensure AI instance is still valid
+                    if not st.session_state.ai_instance:
+                        answer = "⚠️ Chatbot disconnected. Please reload the page."
+                    else:
+                        answer = st.session_state.ai_instance.ask(
+                            prompt,
+                            st.session_state.chat_history,
+                            st.session_state.session_id
+                        )
+                except Exception as e:
+                    print(f"Error in chat: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    answer = "⚠️ An error occurred. Please try reloading the page."
+            
             st.markdown(answer)
         
+        # Save messages
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.session_state.chat_history.append({"question": prompt, "answer": answer})
         
@@ -1126,7 +1177,9 @@ elif st.session_state.page == "chat":
     
     # Clear chat button
     if len(st.session_state.messages) > 0:
-        if st.button("🗑️ Clear Chat", key="clear_chat"):
-            st.session_state.messages = []
-            st.session_state.chat_history = []
-            st.rerun()
+        col1, col2 = st.columns([4, 1])
+        with col2:
+            if st.button("🗑️ Clear Chat", key="clear_chat"):
+                st.session_state.messages = []
+                st.session_state.chat_history = []
+                st.rerun()
