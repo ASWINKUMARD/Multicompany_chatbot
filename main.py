@@ -113,7 +113,7 @@ Base.metadata.create_all(bind=engine)
 # API Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "google/gemini-2.0-flash-exp:free"
+MODEL = "kwaipilot/kat-coder-pro:free"
 
 PRIORITY_PAGES = [
     "", "about", "services", "solutions", "products", "contact", "team",
