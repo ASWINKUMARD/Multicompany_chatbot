@@ -1,454 +1,261 @@
 ###############################################################
-#  MAIN BACKEND – FULL FIXED VERSION
-#  Works with Streamlit Frontend (PART-2)
+#  FULL SINGLE-FILE AI CHATBOT SYSTEM
+#  backend + UI + embeddings + RAG + scraper WORKING VERSION
 ###############################################################
 
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-
-import os, re, json, time, hashlib, requests, shutil, functools
+import streamlit as st
+import os, re, json, time, hashlib, requests, shutil
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
 from collections import deque
-from typing import Optional, List, Dict, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 from bs4 import BeautifulSoup
 
 ###############################################################
-# GLOBAL CONFIG
-###############################################################
-
-DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
-OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "kwaipilot/kat-coder-pro:free"
-
-Base = declarative_base()
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
-###############################################################
-# DATABASE TABLES
-###############################################################
-
-class Company(Base):
-    __tablename__ = "companies"
-    id = Column(Integer, primary_key=True)
-    company_name = Column(String(255), unique=True)
-    company_slug = Column(String(255), unique=True)
-    website_url = Column(String(300))
-    emails = Column(Text)
-    phones = Column(Text)
-    address_india = Column(Text)
-    address_international = Column(Text)
-    pages_scraped = Column(Integer, default=0)
-    scraping_status = Column(String(50), default="pending")
-    max_pages_to_scrape = Column(Integer, default=40)
-    last_scraped = Column(DateTime)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-
-class ChatHistory(Base):
-    __tablename__="chat_history"
-    id=Column(Integer,primary_key=True)
-    company_slug=Column(String(255))
-    question=Column(Text)
-    answer=Column(Text)
-    session_id=Column(String(255))
-    timestamp=Column(DateTime,default=lambda:datetime.now(timezone.utc))
-
-
-class UserContact(Base):
-    __tablename__="user_contacts"
-    id=Column(Integer,primary_key=True)
-    company_slug=Column(String(255))
-    name=Column(String(255))
-    email=Column(String(255))
-    phone=Column(String(50))
-    timestamp=Column(DateTime,default=lambda:datetime.now(timezone.utc))
-
-Base.metadata.create_all(engine)
-
-###############################################################
-# UTIL
-###############################################################
-
-def create_slug(name:str)->str:
-    slug=re.sub(r'[^a-z0-9]+','-',name.lower()).strip("-")
-    return slug
-
-def get_chroma_directory(slug): return f"./chroma_db/{slug}"
-
-# URL CHECK
-def validate_url(url):
-    try:
-        p=urlparse(url)
-        return p.scheme in ("http","https") and p.netloc!=""
-    except: return False
-
-
-###############################################################
-# EMBEDDINGS (FIXED – NO MORE STUCK)
-###############################################################
-
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_core.documents import Document
-from langchain_core.prompts import PromptTemplate
-
-_EMBED_CACHE=None
-
-def get_embeddings():
-    global _EMBED_CACHE
-    if _EMBED_CACHE: return _EMBED_CACHE
-
-    print("🔄 Loading embeddings...")
-    try:
-        _EMBED_CACHE=HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={"device":"cpu"},
-            encode_kwargs={"normalize_embeddings":True}
-        )
-    except:
-        print("⚠️ Fallback small model used")
-        _EMBED_CACHE=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-    print("✅ Embeddings loaded\n")
-    return _EMBED_CACHE
-
-
-###############################################################
-# SMART SCRAPER (Stable + Contact Extractor)
-###############################################################
-
-class WebScraper:
-    def __init__(self,slug):
-        self.slug=slug
-        self.session=requests.Session()
-        self.info={"emails":set(),"phones":set(),"address_india":None,"address_international":None}
-
-    def extract_contacts(self,text):
-        if not text:return
-        for m in re.findall(r"[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",text):
-            self.info["emails"].add(m)
-
-        for m in re.findall(r"\+?\d[\d -]{7,14}",text):
-            self.info["phones"].add(m)
-
-    def scrape(self,url,max_pages=30,cb=None)->tuple[list,dict]:
-        q=deque([url])
-        seen=set(); docs=[]
-
-        while q and len(seen)<max_pages:
-            link=q.popleft()
-            if link in seen:continue
-            seen.add(link)
-
-            try:
-                r=self.session.get(link,timeout=15)
-                if r.status_code!=200:continue
-                soup=BeautifulSoup(r.text,"html.parser")
-                text=soup.get_text(" ",strip=True)
-                self.extract_contacts(text)
-
-                content="\n".join(t.strip() for t in text.split("\n") if len(t.strip())>40)[:2500]
-                if len(content)>300:
-                    docs.append(Document(page_content=content,metadata={"source":link}))
-
-                for a in soup.find_all("a",href=True):
-                    u=urljoin(url,a['href']).split("#")[0]
-                    if urlparse(u).netloc==urlparse(url).netloc and u not in seen:
-                        q.append(u)
-                if cb:cb(len(seen),max_pages,link)
-
-            except:pass
-
-        return docs,{
-            "emails":list(self.info["emails"]),
-            "phones":list(self.info["phones"]),
-            "address_india":self.info["address_india"],
-            "address_international":self.info["address_international"],
-            "pages_scraped":len(seen)
-        }
-
-
-###############################################################
-# AI ENGINE (Vector DB + Chat)
-###############################################################
-
-class CompanyAI:
-    def __init__(self,slug):
-        self.slug=slug
-        self.vector=None; self.retriever=None
-        self.data=None; self.ready=False
-
-        self.prompt=PromptTemplate(
-            template="""You are AI assistant for {name}.
-Use only the following context:
-
-{context}
-
-Question: {q}
-
-Answer shortly (2-4 sentences), no hallucination.""",
-            input_variables=["name","context","q"]
-        )
-
-    def initialize(self,url,maxp,cb=None):
-        docs,info=WebScraper(self.slug).scrape(url,maxp,cb)
-        if len(docs)<3:return False
-
-        self.data=info
-        text=RecursiveCharacterTextSplitter(chunk_size=900,chunk_overlap=150).split_documents(docs)
-
-        path=get_chroma_directory(self.slug)
-        if os.path.exists(path):shutil.rmtree(path)
-        os.makedirs(path,exist_ok=True)
-
-        self.vector=Chroma.from_documents(text,get_embeddings(),persist_directory=path)
-        self.retriever=self.vector.as_retriever(k=4)
-        self.ready=True;return True
-
-    def load(self):
-        path=get_chroma_directory(self.slug)
-        if not os.path.exists(path):return False
-        self.vector=Chroma(persist_directory=path,embedding_function=get_embeddings())
-        self.retriever=self.vector.as_retriever(k=4)
-        self.ready=True;return True
-
-    def ask(self,q):
-        if not self.ready:return "⏳ Loading..."
-        docs=self.retriever.get_relevant_documents(q)
-        ctx="\n".join(d.page_content[:400] for d in docs[:3])
-
-        payload={
-            "model":MODEL,
-            "messages":[{"role":"system","content":"Answer using context only"},
-                        {"role":"user","content":self.prompt.format(q=q,context=ctx,name=self.slug)}]
-        }
-        r=requests.post(OPENROUTER_API_BASE,json=payload,
-                        headers={"Authorization":f"Bearer {OPENROUTER_API_KEY}"})
-        return r.json()["choices"][0]["message"]["content"]
-
-
-###############################################################
-# DB EXPOSE FUNCTIONS FOR STREAMLIT
-###############################################################
-
-def create_company(name,url,maxp):
-    db=SessionLocal()
-    slug=create_slug(name)
-    if db.query(Company).filter_by(company_slug=slug).first():return None
-    c=Company(company_name=name,company_slug=slug,website_url=url,max_pages_to_scrape=maxp)
-    db.add(c);db.commit();return slug
-
-def update_company_after_scraping(slug,info,status="completed"):
-    db=SessionLocal();c=db.query(Company).filter_by(company_slug=slug).first()
-    c.emails=json.dumps(info["emails"]);c.phones=json.dumps(info["phones"])
-    c.address_india=info["address_india"];c.address_india=info["address_india"]
-    c.address_international=info["address_international"]
-    c.pages_scraped=info["pages_scraped"];c.scraping_status=status
-    c.last_scraped=datetime.now(timezone.utc);db.commit()
-
-def get_all_companies():
-    db=SessionLocal();return db.query(Company).all()
-
-def get_company_by_slug(s):
-    db=SessionLocal();return db.query(Company).filter_by(company_slug=s).first()
-
-###############################################################
-# STREAMLIT FRONTEND UI  - PART 2 (Full Stable Working UI)
-###############################################################
-
-import streamlit as st
-import time, hashlib, os
-from urllib.parse import urlparse
-from datetime import datetime
-
-# ===== IMPORTS FROM MAIN.PY ===== #
-from main import (
-    create_company, update_company_after_scraping,
-    get_all_companies, get_company_by_slug,
-    CompanyAI, validate_url
-)
-
-###############################################################
-# PAGE SETTINGS
+# CONFIG
 ###############################################################
 
 st.set_page_config(page_title="AI Chatbot Generator", page_icon="🤖", layout="wide")
 
-st.markdown("""
-<style>
-    .main { background: #f7f9ff; }
-    .header {text-align:center;padding:25px;border-radius:10px;color:white;
-        background:linear-gradient(135deg,#5b6cff,#764ba2);}
-    .card {background:white;padding:15px;border-radius:10px;margin:10px 0;
-        box-shadow:0 2px 8px rgba(0,0,0,.08);}
-    .btn {font-weight:600;border-radius:8px;}
-</style>
-""", unsafe_allow_html=True)
+DATABASE_URL = "sqlite:///./multi_company_chatbots.db"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+MODEL = "kwaipilot/kat-coder-pro:free"
+API = "https://openrouter.ai/api/v1/chat/completions"
+
+if not OPENROUTER_API_KEY:
+    st.sidebar.error("⚠️ Add OPENROUTER_API_KEY in Secrets!")
+
+Base = declarative_base()
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+Session = sessionmaker(bind=engine)
 
 ###############################################################
-# SESSION INIT
+# DATABASE
+###############################################################
+
+class Company(Base):
+    __tablename__="companies"
+    id=Column(Integer,primary_key=True)
+    name=Column(String(255))
+    slug=Column(String(255),unique=True)
+    url=Column(String(300))
+    pages=Column(Integer,default=30)
+    status=Column(String(50),default="pending")
+    data=Column(Text)
+    created=Column(DateTime,default=lambda:datetime.now(timezone.utc))
+
+class Chat(Base):
+    __tablename__="history"
+    id=Column(Integer,primary_key=True)
+    slug=Column(String(255))
+    q=Column(Text)
+    a=Column(Text)
+
+Base.metadata.create_all(engine)
+
+###############################################################
+# LANGCHAIN SAFE IMPORT SYSTEM
+###############################################################
+
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except:
+    from langchain.text_splitters import RecursiveCharacterTextSplitter
+
+try:
+    from langchain_community.vectorstores import Chroma
+except:
+    from langchain.vectorstores import Chroma
+
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except:
+    try:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+    except:
+        from langchain.embeddings import HuggingFaceEmbeddings
+
+try:
+    from langchain_core.documents import Document
+except:
+    try:
+        from langchain.docstore.document import Document
+    except:
+        from langchain.schema import Document
+
+try:
+    from langchain_core.prompts import PromptTemplate
+except:
+    from langchain.prompts import PromptTemplate
+
+###############################################################
+# URL VALIDATOR
+###############################################################
+
+def validate(url):
+    try:
+        p=urlparse(url)
+        return p.scheme in ("http","https") and p.netloc
+    except:return False
+
+###############################################################
+# EMBEDDINGS (no infinite loading)
+###############################################################
+
+_EMB=None
+def embeddings():
+    global _EMB
+    if _EMB:return _EMB
+    try:
+        _EMB=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    except:
+        _EMB=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    return _EMB
+
+###############################################################
+# SCRAPER
+###############################################################
+
+def scrape(url,maxp,cb=None):
+    q=deque([url])
+    seen=set(); docs=[]
+
+    while q and len(seen)<maxp:
+        u=q.popleft()
+        if u in seen:continue
+        seen.add(u)
+
+        try:
+            r=requests.get(u,timeout=15)
+            if r.status_code!=200:continue
+            soup=BeautifulSoup(r.text,"html.parser")
+            text=soup.get_text(" ",strip=True)
+            clean="\n".join(t for t in text.split("\n") if len(t)>45)[:2500]
+            if len(clean)>200:
+                docs.append(Document(page_content=clean,metadata={"src":u}))
+
+            for a in soup.find_all("a",href=True):
+                link=urljoin(url,a['href']).split("#")[0]
+                if urlparse(link).netloc==urlparse(url).netloc:
+                    q.append(link)
+
+            if cb:cb(len(seen),maxp,u)
+
+        except:pass
+
+    return docs,{"pages":len(seen)}
+
+###############################################################
+# AI CORE
+###############################################################
+
+class AI:
+    def __init__(self,slug):self.slug=slug;self.v=None
+
+    def build(self,url,maxp,cb=None):
+        docs,data=scrape(url,maxp,cb)
+        if len(docs)<3:return False
+
+        path=f"chroma/{self.slug}"
+        if os.path.exists(path):shutil.rmtree(path)
+        os.makedirs(path,exist_ok=True)
+
+        spl=RecursiveCharacterTextSplitter(chunk_size=900,chunk_overlap=150)
+        docs=spl.split_documents(docs)
+
+        self.v=Chroma.from_documents(docs,embeddings(),persist_directory=path)
+        return True
+
+    def load(self):
+        path=f"chroma/{self.slug}"
+        if not os.path.exists(path):return False
+        self.v=Chroma(persist_directory=path,embedding_function=embeddings())
+        return True
+
+    def ask(self,q):
+        ctx="\n".join(d.page_content[:300] for d in self.v.similarity_search(q,k=3))
+        prompt=f"Use ONLY info below:\n{ctx}\nQ:{q}\nA:"
+
+        r=requests.post(API,json={
+            "model":MODEL,
+            "messages":[{"role":"user","content":prompt}]
+        },headers={"Authorization":f"Bearer {OPENROUTER_API_KEY}"})
+        return r.json()["choices"][0]["message"]["content"]
+
+###############################################################
+# STREAMLIT UI
 ###############################################################
 
 if "page" not in st.session_state: st.session_state.page="home"
-if "ai" not in st.session_state: st.session_state.ai=None
-if "company" not in st.session_state: st.session_state.company=None
 if "chat" not in st.session_state: st.session_state.chat=[]
-if "session" not in st.session_state:
-    st.session_state.session = hashlib.md5(os.urandom(16)).hexdigest()[:12]
+if "slug" not in st.session_state: st.session_state.slug=None
+if "ai" not in st.session_state: st.session_state.ai=None
 
-
-###############################################################
-# SIDEBAR NAVIGATION
-###############################################################
-
-with st.sidebar:
-    st.title("🤖 AI Chatbot")
-    if st.button("🏠 Home"): st.session_state.page="home"; st.rerun()
-    if st.button("➕ Create New"): st.session_state.page="create"; st.rerun()
-    if st.button("📋 All Chatbots"): st.session_state.page="list"; st.rerun()
-
-    st.markdown("---")
-    st.caption(f"Session: `{st.session_state.session}`")
-    st.caption("Powered by RAG + OpenRouter")
-
-
-###############################################################
-# HOME PAGE
-###############################################################
-
+################################ HOME ################################
 if st.session_state.page=="home":
-    st.markdown('<div class="header"><h1>🤖 AI Chatbot Generator</h1>'
-                '<p>Create Chatbot From Any Website</p></div>', unsafe_allow_html=True)
+    st.title("🤖 AI Chatbot Generator")
+    st.write("Create chatbot from any website automatically.")
 
-    c1,c2=st.columns(2)
-    if c1.button("➕ Create Chatbot",use_container_width=True): st.session_state.page="create"; st.rerun()
-    if c2.button("📋 View Chatbots",use_container_width=True): st.session_state.page="list"; st.rerun()
+    if st.button("➕ Create New Chatbot"): st.session_state.page="create"; st.rerun()
+    if st.button("📋 View All Chatbots"): st.session_state.page="list"; st.rerun()
 
-    st.info("""
-### 🔥 Features
-- Automatic Website Scraper  
-- Builds Company Knowledge Base  
-- AI Answers Using Real Website Content  
-- Contact Information Extraction  
-- Multi-Company Chat Support  
-""")
-
-###############################################################
-# CREATE NEW CHATBOT PAGE
-###############################################################
-
+################################ CREATE BOT ################################
 elif st.session_state.page=="create":
-    st.markdown('<div class="header"><h2>Create New Chatbot</h2></div>', unsafe_allow_html=True)
+    st.header("Create New Chatbot")
 
-    with st.form("create_bot"):
-        name = st.text_input("Company Name*",placeholder="Example Pvt Ltd")
-        url = st.text_input("Website URL*",placeholder="https://example.com")
-        pages = st.slider("Scrape Pages",10,60,30)
+    name=st.text_input("Company Name")
+    url=st.text_input("Website URL")
+    pages=st.slider("Pages to Scrape",10,60,30)
 
-        submit=st.form_submit_button("🚀 Create Chatbot")
+    if st.button("🚀 Build Chatbot"):
+        if not(name and validate(url)): st.error("Invalid input"); st.stop()
 
-    if submit:
-        if not name or not url: st.error("Enter all fields!"); st.stop()
-        if not validate_url(url): st.error("Invalid URL"); st.stop()
+        db=Session()
+        slug=re.sub(r'[^a-z0-9]+','-',name.lower())
+        db.add(Company(name=name,slug=slug,url=url,pages=pages))
+        db.commit()
 
-        slug=create_company(name,url,pages)
-        if not slug:
-            st.error("Company already exists! Use unique name"); st.stop()
-
-        st.success("Company Created ✔ Starting Web Scraper...")
-
-        prog = st.progress(0); status=st.empty()
-
-        def cb(a,b,u): prog.progress(a/b); status.write(f"Scraping → {u}")
-
-        ai = CompanyAI(slug)
-        ok = ai.initialize(url,pages,cb)
+        ai=AI(slug)
+        prog=st.progress(0); text=st.empty()
+        ok=ai.build(url,pages,lambda a,b,u:(prog.progress(a/b),text.write(u)))
 
         if ok:
-            update_company_after_scraping(slug, ai.data, "completed")
-            st.success("🎉 Chatbot Ready")
-            st.balloons()
-
-            st.session_state.company = slug
-            st.session_state.ai = ai
-            st.session_state.page="chat"
+            st.success("Chatbot Ready ✔")
+            st.session_state.slug=slug
+            st.session_state.ai=ai
             st.session_state.chat=[]
-            st.rerun()
-        else:
-            st.error("Failed processing website. Try new domain.")
+            st.session_state.page="chat"; st.rerun()
+        else: st.error("Scraping failed")
 
-
-###############################################################
-# LIST BOT PAGE
-###############################################################
-
+################################ LIST ################################
 elif st.session_state.page=="list":
-    st.markdown('<div class="header"><h2>All Chatbots</h2></div>', unsafe_allow_html=True)
+    st.header("All Chatbots")
+    db=Session(); bots=db.query(Company).all()
 
-    bots=get_all_companies()
-    if not bots:
-        st.warning("No chatbots found. Create one →")
-        if st.button("➕ Create Now"): st.session_state.page="create"; st.rerun()
-    else:
-        for c in bots:
-            with st.container():
-                st.markdown(f"<div class='card'><h3>{c.company_name}</h3>"
-                            f"<p>🌐 {c.website_url}<br>📄 {c.pages_scraped} pages</p>",
-                            unsafe_allow_html=True)
+    for b in bots:
+        st.write(f"### {b.name}")
+        if st.button(f"💬 Chat",key=b.slug):
+            st.session_state.slug=b.slug; st.session_state.ai=AI(b.slug)
+            st.session_state.ai.load()
+            st.session_state.page="chat"; st.session_state.chat=[]; st.rerun()
 
-                if c.scraping_status=="completed":
-                    if st.button(f"💬 Chat With {c.company_name}",key=c.id):
-                        st.session_state.company=c.company_slug
-                        st.session_state.ai=None
-                        st.session_state.page="chat"
-                        st.session_state.chat=[]
-                        st.rerun()
-                else:
-                    st.error("Not Ready Yet")
-
-
-###############################################################
-# CHAT PAGE
-###############################################################
-
+################################ CHAT ################################
 elif st.session_state.page=="chat":
+    c=Session().query(Company).filter_by(slug=st.session_state.slug).first()
+    st.header(f"Chat with {c.name}")
 
-    if not st.session_state.company:
-        st.error("No company selected"); st.stop()
-
-    c=get_company_by_slug(st.session_state.company)
-    st.markdown(f"<div class='header'><h2>💬 {c.company_name}</h2></div>", unsafe_allow_html=True)
-
-    # Load AI model if not loaded
-    if not st.session_state.ai:
-        st.write("Loading knowledge base...")
-        ai=CompanyAI(st.session_state.company)
-        if not ai.load():
-            st.error("Chatbot not built yet. Recreate.")
-            st.stop()
-        st.session_state.ai=ai
-
-    # Display chat history
+    # show history
     for m in st.session_state.chat:
-        with st.chat_message(m["role"]): st.write(m["content"])
+        with st.chat_message(m["role"]): st.write(m["text"])
 
-    # Input box
-    user=st.chat_input("Ask about the company...")
-    if user:
-        st.session_state.chat.append({"role":"user","content":user})
+    q=st.chat_input("Ask something...")
+    if q:
+        with st.chat_message("user"): st.write(q)
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                reply = st.session_state.ai.ask(user)
-                st.write(reply)
+            ans=st.session_state.ai.ask(q)
+            st.write(ans)
 
-        st.session_state.chat.append({"role":"assistant","content":reply})
+        st.session_state.chat.append({"role":"user","text":q})
+        st.session_state.chat.append({"role":"assistant","text":ans})
         st.rerun()
