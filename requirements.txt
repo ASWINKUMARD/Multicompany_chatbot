@@ -1,12 +1,12 @@
 streamlit
 requests
 beautifulsoup4
-pysqlite3-binary
 sqlalchemy
 langchain
 langchain-community
-langchain-huggingface
-chromadb==0.4.22
+langchain-text-splitters
 sentence-transformers
+chromadb
+pysqlite3-binary
+tiktoken
 huggingface_hub
-urllib3
