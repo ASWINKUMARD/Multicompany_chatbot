@@ -35,7 +35,7 @@ from datetime import datetime
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
 
-# Fast, reliable models
+# Fast, reliable model
 MODEL = "kwaipilot/kat-coder-pro:free"
 
 # =============================================================================
@@ -77,7 +77,7 @@ class FastScraper:
                     phones.add(phone.strip())
         
         return {
-            "emails": sorted(list(emails))[:2],  # Limit to 5
+            "emails": sorted(list(emails))[:2],
             "phones": sorted(list(phones))[:2]
         }
     
@@ -133,7 +133,7 @@ class FastScraper:
                 if len(line) > 25 and line.lower() not in seen:
                     lines.append(line)
                     seen.add(line.lower())
-                if len(lines) >= 40:  # Limit lines
+                if len(lines) >= 40:
                     break
             
             content = '\n'.join(lines)
@@ -144,7 +144,7 @@ class FastScraper:
             return {
                 "url": url,
                 "title": title[:200],
-                "content": content[:3000]  # Limit content size
+                "content": content[:3000]
             }
             
         except Exception as e:
@@ -173,7 +173,7 @@ class FastScraper:
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 domain = urlparse(base_url).netloc
                 
-                for link in soup.find_all('a', href=True)[:30]:  # Limit to 30 links
+                for link in soup.find_all('a', href=True)[:30]:
                     href = link['href']
                     full_url = urljoin(base_url, href)
                     
@@ -185,7 +185,7 @@ class FastScraper:
         except:
             pass
         
-        return urls[:40]  # Limit to 15 URLs max
+        return urls[:40]
     
     def scrape_website(self, base_url: str, progress_callback=None) -> Tuple[List[Dict], Dict]:
         """Scrape website in parallel - FAST!"""
@@ -231,10 +231,10 @@ class FastScraper:
 # =============================================================================
 class SmartAI:
     def __init__(self):
-        self.response_cache = {}  # Cache responses
+        self.response_cache = {}
         
     def call_llm(self, prompt: str) -> str:
-        """Call LLM with smart fallbacks and better error handling"""
+        """Call LLM with error handling"""
         
         if not OPENROUTER_API_KEY:
             return "⚠️ API key not set. Please configure OPENROUTER_API_KEY."
@@ -252,94 +252,86 @@ class SmartAI:
             "X-Title": "Universal Chatbot"
         }
         
-        # Try multiple models
-        for model_idx, model in enumerate(MODELS):
-            for attempt in range(2):  # 2 attempts per model
-                try:
-                    print(f"[AI] Model {model_idx+1}/{len(MODELS)}: {model} (attempt {attempt+1})")
-                    
-                    payload = {
-                        "model": model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7,
-                        "max_tokens": 400,
-                    }
-                    
-                    resp = requests.post(
-                        OPENROUTER_API_BASE,
-                        headers=headers,
-                        json=payload,
-                        timeout=45
-                    )
-                    
-                    print(f"[AI] Status: {resp.status_code}")
-                    
-                    if resp.status_code == 200:
-                        try:
-                            data = resp.json()
-                            print(f"[AI] Response keys: {list(data.keys())}")
-                            
-                            # Check for API error in response
-                            if "error" in data:
-                                error_msg = data["error"].get("message", str(data["error"]))
-                                print(f"[AI] API Error: {error_msg}")
-                                # Try next model
-                                break
-                            
-                            if "choices" in data and len(data["choices"]) > 0:
-                                content = data["choices"][0].get("message", {}).get("content", "")
-                                if content and len(content.strip()) > 5:
-                                    print(f"[AI] ✅ Success! Length: {len(content)}")
-                                    # Cache the response
-                                    self.response_cache[cache_key] = content.strip()
-                                    return content.strip()
-                                else:
-                                    print(f"[AI] Empty content received")
-                            else:
-                                print(f"[AI] No choices in response: {data}")
-                        
-                        except Exception as e:
-                            print(f"[AI] JSON parse error: {e}")
-                            print(f"[AI] Raw response: {resp.text[:300]}")
-                    
-                    elif resp.status_code == 401:
-                        return "⚠️ Invalid API key. Get one from https://openrouter.ai/keys"
-                    
-                    elif resp.status_code == 402:
-                        print(f"[AI] No credits remaining")
-                        # Try next model
-                        break
-                    
-                    elif resp.status_code == 429:
-                        print(f"[AI] Rate limited, waiting...")
-                        time.sleep(3)
-                        continue
-                    
-                    else:
-                        print(f"[AI] Error {resp.status_code}: {resp.text[:200]}")
-                    
-                    # Retry with same model
-                    if attempt < 1:
-                        time.sleep(2)
-                        continue
-                    
-                except requests.exceptions.Timeout:
-                    print(f"[AI] Timeout with {model}")
-                    if attempt < 1:
-                        time.sleep(2)
-                        continue
+        # Try with the configured model
+        for attempt in range(2):
+            try:
+                print(f"[AI] Using model: {MODEL} (attempt {attempt+1})")
                 
-                except Exception as e:
-                    print(f"[AI] Exception with {model}: {type(e).__name__}: {str(e)[:100]}")
-                    if attempt < 1:
-                        time.sleep(2)
-                        continue
+                payload = {
+                    "model": MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.7,
+                    "max_tokens": 400,
+                }
+                
+                resp = requests.post(
+                    OPENROUTER_API_BASE,
+                    headers=headers,
+                    json=payload,
+                    timeout=45
+                )
+                
+                print(f"[AI] Status: {resp.status_code}")
+                
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        print(f"[AI] Response keys: {list(data.keys())}")
+                        
+                        # Check for API error in response
+                        if "error" in data:
+                            error_msg = data["error"].get("message", str(data["error"]))
+                            print(f"[AI] API Error: {error_msg}")
+                            return f"⚠️ API Error: {error_msg}"
+                        
+                        if "choices" in data and len(data["choices"]) > 0:
+                            content = data["choices"][0].get("message", {}).get("content", "")
+                            if content and len(content.strip()) > 5:
+                                print(f"[AI] ✅ Success! Length: {len(content)}")
+                                # Cache the response
+                                self.response_cache[cache_key] = content.strip()
+                                return content.strip()
+                            else:
+                                print(f"[AI] Empty content received")
+                        else:
+                            print(f"[AI] No choices in response: {data}")
+                    
+                    except Exception as e:
+                        print(f"[AI] JSON parse error: {e}")
+                        print(f"[AI] Raw response: {resp.text[:300]}")
+                
+                elif resp.status_code == 401:
+                    return "⚠️ Invalid API key. Get one from https://openrouter.ai/keys"
+                
+                elif resp.status_code == 402:
+                    return "⚠️ No credits remaining. Please add credits at https://openrouter.ai"
+                
+                elif resp.status_code == 429:
+                    print(f"[AI] Rate limited, waiting...")
+                    time.sleep(3)
+                    continue
+                
+                else:
+                    print(f"[AI] Error {resp.status_code}: {resp.text[:200]}")
+                
+                # Retry
+                if attempt < 1:
+                    time.sleep(2)
+                    continue
+                
+            except requests.exceptions.Timeout:
+                print(f"[AI] Timeout with {MODEL}")
+                if attempt < 1:
+                    time.sleep(2)
+                    continue
             
-            # Small delay before trying next model
-            if model_idx < len(MODELS) - 1:
-                time.sleep(1)
+            except Exception as e:
+                print(f"[AI] Exception: {type(e).__name__}: {str(e)[:100]}")
+                if attempt < 1:
+                    time.sleep(2)
+                    continue
         
-        # If all models fail, return helpful fallback
+        # If all attempts fail, return helpful fallback
         return "I'm having trouble connecting to the AI service right now. However, I can still help! Try asking about contact information, or visit the company website for more details."
 
 # =============================================================================
@@ -528,6 +520,7 @@ def main():
     with st.expander("🧪 Test API Key", expanded=False):
         st.write(f"**API Key Set:** ✅")
         st.write(f"**Key Preview:** `{OPENROUTER_API_KEY[:10]}...{OPENROUTER_API_KEY[-4:]}`")
+        st.write(f"**Model:** `{MODEL}`")
         
         if st.button("Test API Connection"):
             with st.spinner("Testing..."):
