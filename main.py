@@ -951,7 +951,7 @@ def main():
         page_title="✨ AutoBot AI - Ultra Edition",
         page_icon="🤖",
         layout="wide",
-        initial_sidebar_state="expanded"
+        initial_sidebar_state="expanded"  # Force sidebar to be open
     )
     
     # Apply stunning CSS
@@ -1119,113 +1119,94 @@ def main():
                 st.rerun()
     
     else:
-        # Ultra-stunning welcome screen - Using Streamlit components instead of complex HTML
+        # Simplified welcome screen with better visibility
         st.markdown("""
-        <style>
-            .welcome-container {
-                text-align: center;
-                padding: 4rem 2rem;
-                position: relative;
-                z-index: 1;
-            }
-            .welcome-icon {
-                font-size: 6rem;
-                margin-bottom: 1.5rem;
-                filter: drop-shadow(0 10px 30px rgba(102, 126, 234, 0.4));
-                animation: welcomeBounce 2s ease-in-out infinite;
-            }
-            .welcome-title {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                font-size: 3.5rem;
-                font-weight: 900;
-                margin-bottom: 1rem;
-                font-family: 'Space Grotesk', sans-serif;
-            }
-            .welcome-subtitle {
-                font-size: 1.375rem;
-                color: rgba(255, 255, 255, 0.9);
-                margin-bottom: 3rem;
-                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-                font-weight: 500;
-            }
-        </style>
-        <div class="welcome-container">
-            <div class="welcome-icon">🤖</div>
-            <h1 class="welcome-title">AutoBot AI Ultra</h1>
-            <p class="welcome-subtitle">Create intelligent chatbots for any company website in seconds ⚡</p>
+        <div style="text-align: center; padding: 3rem 1rem;">
+            <div style="font-size: 5rem; margin-bottom: 1rem;">🤖</div>
+            <h1 style="color: white; font-size: 3rem; font-weight: 900; margin-bottom: 1rem; 
+                       text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                AutoBot AI Ultra
+            </h1>
+            <p style="color: white; font-size: 1.3rem; margin-bottom: 2rem;
+                      text-shadow: 1px 1px 3px rgba(0,0,0,0.5);">
+                Create intelligent chatbots in seconds ⚡
+            </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Feature cards using Streamlit columns for better compatibility
-        st.markdown("""
-        <div style="max-width: 800px; margin: 2rem auto; padding: 0 1rem;">
-        """, unsafe_allow_html=True)
-        
+        # Feature cards with better visibility
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("""
-            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
-                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
-                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;
-                        transition: transform 0.3s ease;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">🚀</div>
-                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Instant Creation</h3>
-                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Launch in seconds</p>
+            <div style="background: rgba(255, 255, 255, 0.25); backdrop-filter: blur(10px); 
+                        border-radius: 16px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.4);
+                        margin-bottom: 1rem; text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 0.5rem;">🚀</div>
+                <h3 style="color: white; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.2rem;
+                           text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                    Instant Creation
+                </h3>
+                <p style="color: white; margin: 0; font-size: 0.95rem;
+                          text-shadow: 1px 1px 2px rgba(0,0,0,0.4);">
+                    Launch in seconds
+                </p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
-                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
-                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">📞</div>
-                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Contact Detection</h3>
-                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Find emails and phones</p>
+            <div style="background: rgba(255, 255, 255, 0.25); backdrop-filter: blur(10px); 
+                        border-radius: 16px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.4);
+                        margin-bottom: 1rem; text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 0.5rem;">📞</div>
+                <h3 style="color: white; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.2rem;
+                           text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                    Contact Detection
+                </h3>
+                <p style="color: white; margin: 0; font-size: 0.95rem;
+                          text-shadow: 1px 1px 2px rgba(0,0,0,0.4);">
+                    Find emails & phones
+                </p>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
             st.markdown("""
-            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
-                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
-                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
-                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Smart Analysis</h3>
-                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Auto content extraction</p>
+            <div style="background: rgba(255, 255, 255, 0.25); backdrop-filter: blur(10px); 
+                        border-radius: 16px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.4);
+                        margin-bottom: 1rem; text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 0.5rem;">🔍</div>
+                <h3 style="color: white; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.2rem;
+                           text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                    Smart Analysis
+                </h3>
+                <p style="color: white; margin: 0; font-size: 0.95rem;
+                          text-shadow: 1px 1px 2px rgba(0,0,0,0.4);">
+                    Auto content extraction
+                </p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
-                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
-                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">⚡</div>
-                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Lightning Fast</h3>
-                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Instant responses</p>
+            <div style="background: rgba(255, 255, 255, 0.25); backdrop-filter: blur(10px); 
+                        border-radius: 16px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.4);
+                        margin-bottom: 1rem; text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 0.5rem;">⚡</div>
+                <h3 style="color: white; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.2rem;
+                           text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                    Lightning Fast
+                </h3>
+                <p style="color: white; margin: 0; font-size: 0.95rem;
+                          text-shadow: 1px 1px 2px rgba(0,0,0,0.4);">
+                    Instant responses
+                </p>
             </div>
             """, unsafe_allow_html=True)
         
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Call to action
-        st.markdown("""
-        <div style="text-align: center; margin-top: 3rem; padding: 0 2rem;">
-            <div style="display: inline-flex; align-items: center; gap: 1rem;">
-                <div style="width: 40px; height: 2px; background: rgba(255, 255, 255, 0.4);"></div>
-                <p style="color: rgba(255, 255, 255, 0.95); font-size: 1.1rem; font-weight: 600; margin: 0;">
-                    👈 Open the sidebar to create your first chatbot
-                </p>
-                <div style="width: 40px; height: 2px; background: rgba(255, 255, 255, 0.4);"></div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Add instruction to open sidebar if it's collapsed
-        st.info("💡 **Tip:** Click the **>** arrow in the top-left corner to open the sidebar and create your first chatbot!", icon="ℹ️")
+        # Clear call to action
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.success("👈 **Open the sidebar on the left to create your first chatbot!**")
+        st.info("💡 If you don't see the sidebar, click the **'>'** arrow in the top-left corner of the screen.")
 
 if __name__ == "__main__":
     main()
