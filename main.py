@@ -46,7 +46,7 @@ class FastScraper:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        self.timeout = 8
+        self.timeout = 6  # Reduced timeout for faster failures
         
     def clean_text(self, text: str) -> str:
         text = re.sub(r'\s+', ' ', text)
@@ -185,7 +185,7 @@ class FastScraper:
         except:
             pass
         
-        return urls[:80]
+        return urls[:40]
     
     def scrape_website(self, base_url: str, progress_callback=None) -> Tuple[List[Dict], Dict]:
         """Scrape website in parallel - FAST!"""
@@ -197,8 +197,8 @@ class FastScraper:
         pages = []
         all_text = ""
         
-        # Parallel scraping with ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        # Parallel scraping with ThreadPoolExecutor - optimized for 50 pages
+        with ThreadPoolExecutor(max_workers=10) as executor:  # Increased workers for better parallelism
             future_to_url = {executor.submit(self.scrape_page, url): url for url in urls}
             
             completed = 0
