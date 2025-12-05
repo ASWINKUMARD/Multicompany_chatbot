@@ -495,10 +495,14 @@ Provide a helpful, concise answer (2-3 sentences) based ONLY on the context abov
             return "⚠️ An error occurred. Please try again."
 
     def _call_llm(self, prompt: str, max_retries: int = 3) -> str:
-        """FIXED: Enhanced error handling and response parsing"""
+        """FIXED: Enhanced error handling with fallback to simple response"""
         
         if not OPENROUTER_API_KEY:
             return "⚠️ API key not configured. Please set OPENROUTER_API_KEY environment variable."
+
+        # Validate API key format
+        if len(OPENROUTER_API_KEY) < 10:
+            return "⚠️ API key appears invalid (too short). Please check your OPENROUTER_API_KEY."
 
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -507,102 +511,150 @@ Provide a helpful, concise answer (2-3 sentences) based ONLY on the context abov
             "X-Title": "Multi-Company Chatbot"
         }
 
-        payload = {
-            "model": MODEL,
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant. Answer concisely."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.3,
-            "max_tokens": 500,
-        }
+        # Try multiple models in case one fails
+        models_to_try = [
+            "meta-llama/llama-3.1-8b-instruct:free",
+            "google/gemini-2.0-flash-exp:free",
+            "mistralai/mistral-7b-instruct:free"
+        ]
 
-        for attempt in range(max_retries):
-            try:
-                print(f"[LLM] Attempt {attempt + 1}/{max_retries}")
-                
-                resp = requests.post(
-                    OPENROUTER_API_BASE,
-                    headers=headers,
-                    json=payload,
-                    timeout=60,
-                )
-                
-                print(f"[LLM] Status: {resp.status_code}")
+        for model in models_to_try:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 500,
+            }
 
-                if resp.status_code == 200:
-                    try:
-                        data = resp.json()
-                        
-                        # Check for error in response
-                        if "error" in data:
-                            error_msg = data["error"].get("message", "Unknown error")
-                            print(f"[LLM] API Error: {error_msg}")
-                            if attempt < max_retries - 1:
-                                time.sleep(2 ** attempt)
-                                continue
-                            return f"⚠️ API Error: {error_msg}"
-                        
-                        # Extract content
-                        if "choices" in data and len(data["choices"]) > 0:
-                            content = data["choices"][0].get("message", {}).get("content", "")
-                            if content and len(content.strip()) > 10:
-                                print(f"[LLM] Success! Response length: {len(content)}")
-                                return content.strip()
-                        
-                        print(f"[LLM] No valid content in response: {data.keys()}")
-                        
-                    except json.JSONDecodeError as e:
-                        print(f"[LLM] JSON decode error: {e}")
-                        print(f"[LLM] Raw response: {resp.text[:200]}")
-                
-                elif resp.status_code == 401:
-                    return "⚠️ Invalid API key. Please check your OPENROUTER_API_KEY."
-                
-                elif resp.status_code == 429:
-                    print("[LLM] Rate limit hit")
+            for attempt in range(max_retries):
+                try:
+                    print(f"\n[LLM] Model: {model}, Attempt {attempt + 1}/{max_retries}")
+                    print(f"[LLM] API Key (first 10 chars): {OPENROUTER_API_KEY[:10]}...")
+                    print(f"[LLM] Prompt length: {len(prompt)} chars")
+                    
+                    resp = requests.post(
+                        OPENROUTER_API_BASE,
+                        headers=headers,
+                        json=payload,
+                        timeout=60,
+                    )
+                    
+                    print(f"[LLM] Status Code: {resp.status_code}")
+                    print(f"[LLM] Response Headers: {dict(resp.headers)}")
+
+                    # Handle successful response
+                    if resp.status_code == 200:
+                        try:
+                            data = resp.json()
+                            print(f"[LLM] Response keys: {list(data.keys())}")
+                            
+                            # Check for error in response
+                            if "error" in data:
+                                error_msg = data["error"].get("message", str(data["error"]))
+                                print(f"[LLM] API Error: {error_msg}")
+                                # Try next model
+                                break
+                            
+                            # Extract content
+                            if "choices" in data and len(data["choices"]) > 0:
+                                choice = data["choices"][0]
+                                content = choice.get("message", {}).get("content", "")
+                                
+                                if content and len(content.strip()) > 5:
+                                    print(f"[LLM] ✅ Success! Length: {len(content)} chars")
+                                    return content.strip()
+                                else:
+                                    print(f"[LLM] Empty or too short content: '{content}'")
+                            else:
+                                print(f"[LLM] No choices in response. Full data: {data}")
+                            
+                        except json.JSONDecodeError as e:
+                            print(f"[LLM] JSON decode error: {e}")
+                            print(f"[LLM] Raw response (first 500 chars): {resp.text[:500]}")
+                    
+                    # Handle auth error
+                    elif resp.status_code == 401:
+                        print(f"[LLM] Auth error. Response: {resp.text[:200]}")
+                        return "⚠️ Authentication failed. Your API key may be invalid or expired. Get a new key from https://openrouter.ai/keys"
+                    
+                    # Handle rate limiting
+                    elif resp.status_code == 429:
+                        print("[LLM] Rate limit hit")
+                        if attempt < max_retries - 1:
+                            wait_time = 5 * (attempt + 1)
+                            print(f"[LLM] Waiting {wait_time}s before retry...")
+                            time.sleep(wait_time)
+                            continue
+                        return "⚠️ Rate limit reached. Please wait a minute and try again."
+                    
+                    # Handle server errors
+                    elif resp.status_code >= 500:
+                        print(f"[LLM] Server error: {resp.status_code}")
+                        print(f"[LLM] Response: {resp.text[:300]}")
+                        if attempt < max_retries - 1:
+                            time.sleep(2 ** attempt)
+                            continue
+                    
+                    # Handle other errors
+                    else:
+                        print(f"[LLM] Unexpected status: {resp.status_code}")
+                        print(f"[LLM] Full response: {resp.text[:500]}")
+                        try:
+                            error_data = resp.json()
+                            if "error" in error_data:
+                                error_msg = error_data["error"].get("message", str(error_data["error"]))
+                                print(f"[LLM] Error message: {error_msg}")
+                        except:
+                            pass
+
+                    # Retry logic
                     if attempt < max_retries - 1:
-                        time.sleep(5)
-                        continue
-                    return "⚠️ Rate limit reached. Please wait a moment and try again."
-                
-                elif resp.status_code >= 500:
-                    print(f"[LLM] Server error: {resp.status_code}")
+                        sleep_time = 2 ** attempt
+                        print(f"[LLM] Retrying in {sleep_time}s...")
+                        time.sleep(sleep_time)
+
+                except requests.exceptions.Timeout:
+                    print("[LLM] ⏰ Request timeout")
                     if attempt < max_retries - 1:
-                        time.sleep(2 ** attempt)
+                        time.sleep(3)
+                        continue
+                    return "⚠️ Request timed out. The API might be slow. Please try again."
+                
+                except requests.exceptions.ConnectionError as e:
+                    print(f"[LLM] 🌐 Connection error: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(3)
+                        continue
+                    return "⚠️ Connection error. Please check your internet connection."
+                
+                except requests.exceptions.RequestException as e:
+                    print(f"[LLM] ❌ Request error: {type(e).__name__}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
                         continue
                 
-                else:
-                    print(f"[LLM] Unexpected status: {resp.status_code}")
-                    print(f"[LLM] Response: {resp.text[:200]}")
-
-                # Retry logic
-                if attempt < max_retries - 1:
-                    sleep_time = 2 ** attempt
-                    print(f"[LLM] Retrying in {sleep_time}s...")
-                    time.sleep(sleep_time)
-                    continue
-
-            except requests.exceptions.Timeout:
-                print("[LLM] Request timeout")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
-                return "⚠️ Request timed out. Please try again."
+                except Exception as e:
+                    print(f"[LLM] ❌ Unexpected error: {type(e).__name__}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
             
-            except requests.exceptions.RequestException as e:
-                print(f"[LLM] Request error: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
-            
-            except Exception as e:
-                print(f"[LLM] Unexpected error: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
+            print(f"[LLM] Failed with model {model}, trying next model...")
 
-        return "⚠️ Could not get response after multiple attempts. Please check your API key and try again."
+        # If all attempts fail, provide helpful diagnostic message
+        return """⚠️ Unable to get response from AI models after trying multiple options.
+
+**Troubleshooting steps:**
+1. Verify your API key at https://openrouter.ai/keys
+2. Check that you have credits/quota remaining
+3. Check the terminal/console for detailed error logs
+4. Try again in a few minutes (service might be temporarily down)
+
+**API Key Status:** Check first 10 chars match: `{}`...""".format(OPENROUTER_API_KEY[:10])
 
 # =============================================================================
 # STREAMLIT APP
@@ -688,9 +740,60 @@ def main():
     st.caption("Web Scraping + Simple RAG + LLM")
 
     if not OPENROUTER_API_KEY:
-        st.error("⚠️ OPENROUTER_API_KEY not set! Set it as an environment variable.")
+        st.error("⚠️ OPENROUTER_API_KEY not set!")
+        st.info("**How to set your API key:**")
         st.code("export OPENROUTER_API_KEY='your_key_here'", language="bash")
+        st.info("Get your free API key from: https://openrouter.ai/keys")
         return
+    
+    # API Key Diagnostic Section
+    with st.expander("🔧 API Key Diagnostics", expanded=False):
+        st.write(f"**API Key Status:** Set ✅")
+        st.write(f"**Key Preview:** `{OPENROUTER_API_KEY[:10]}...{OPENROUTER_API_KEY[-4:]}`")
+        st.write(f"**Key Length:** {len(OPENROUTER_API_KEY)} characters")
+        
+        if st.button("🧪 Test API Key"):
+            with st.spinner("Testing API connection..."):
+                test_headers = {
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                }
+                test_payload = {
+                    "model": "meta-llama/llama-3.1-8b-instruct:free",
+                    "messages": [{"role": "user", "content": "Say 'test successful' in 2 words"}],
+                    "max_tokens": 10
+                }
+                
+                try:
+                    resp = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers=test_headers,
+                        json=test_payload,
+                        timeout=30
+                    )
+                    
+                    st.write(f"**Response Status:** {resp.status_code}")
+                    
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if "choices" in data and len(data["choices"]) > 0:
+                            content = data["choices"][0].get("message", {}).get("content", "")
+                            st.success(f"✅ API Key is working! Response: {content}")
+                        else:
+                            st.warning(f"⚠️ Unexpected response format: {data}")
+                    elif resp.status_code == 401:
+                        st.error("❌ API Key is invalid or expired. Get a new one from https://openrouter.ai/keys")
+                    elif resp.status_code == 402:
+                        st.error("❌ No credits remaining. Add credits at https://openrouter.ai/credits")
+                    elif resp.status_code == 429:
+                        st.warning("⚠️ Rate limited. Wait a moment and try again.")
+                    else:
+                        st.error(f"❌ Error {resp.status_code}: {resp.text[:300]}")
+                        
+                except requests.exceptions.Timeout:
+                    st.error("❌ Connection timeout. Check your internet connection.")
+                except Exception as e:
+                    st.error(f"❌ Error: {type(e).__name__}: {str(e)}")
 
     selected_slug, selected_company, reinit = render_sidebar()
 
