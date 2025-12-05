@@ -1137,35 +1137,101 @@ def main():
                 Create intelligent chatbots for any company website in seconds ⚡
             </p>
             
-            <div class="feature-card" style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); border-radius: 24px; padding: 3rem; max-width: 700px; margin: 0 auto; border: 2px solid rgba(255, 255, 255, 0.3); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);">
-                <h3 style="color: white; margin-bottom: 2rem; font-size: 1.75rem; font-weight: 700; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);">✨ Premium Features</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; text-align: left;">
-                    <div style="background: rgba(255, 255, 255, 0.1); padding: 1.25rem; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px);">
-                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">🚀</div>
-                        <div style="color: white; font-weight: 600; font-size: 0.95rem;">Instant Creation</div>
-                        <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.85rem; margin-top: 0.25rem;">Launch in seconds</div>
+            <style>
+                .welcome-feature-card {
+                    background: rgba(255, 255, 255, 0.15);
+                    backdrop-filter: blur(20px);
+                    border-radius: 24px;
+                    padding: 3rem;
+                    max-width: 700px;
+                    margin: 0 auto;
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                }
+                .welcome-feature-title {
+                    color: white;
+                    margin-bottom: 2rem;
+                    font-size: 1.75rem;
+                    font-weight: 700;
+                    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                }
+                .welcome-feature-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 1.5rem;
+                    text-align: left;
+                }
+                .welcome-feature-item {
+                    background: rgba(255, 255, 255, 0.1);
+                    padding: 1.25rem;
+                    border-radius: 16px;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    backdrop-filter: blur(10px);
+                }
+                .welcome-feature-icon {
+                    font-size: 2rem;
+                    margin-bottom: 0.5rem;
+                }
+                .welcome-feature-name {
+                    color: white;
+                    font-weight: 600;
+                    font-size: 0.95rem;
+                }
+                .welcome-feature-desc {
+                    color: rgba(255, 255, 255, 0.8);
+                    font-size: 0.85rem;
+                    margin-top: 0.25rem;
+                }
+                .welcome-divider-container {
+                    margin-top: 3rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 0.75rem;
+                }
+                .welcome-divider-line {
+                    width: 40px;
+                    height: 2px;
+                    background: rgba(255, 255, 255, 0.3);
+                }
+                .welcome-divider-text {
+                    color: rgba(255, 255, 255, 0.9);
+                    font-size: 1rem;
+                    font-weight: 600;
+                    margin: 0;
+                }
+            </style>
+            
+            <div class="welcome-feature-card">
+                <h3 class="welcome-feature-title">✨ Premium Features</h3>
+                <div class="welcome-feature-grid">
+                    <div class="welcome-feature-item">
+                        <div class="welcome-feature-icon">🚀</div>
+                        <div class="welcome-feature-name">Instant Creation</div>
+                        <div class="welcome-feature-desc">Launch in seconds</div>
                     </div>
-                    <div style="background: rgba(255, 255, 255, 0.1); padding: 1.25rem; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px);">
-                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔍</div>
-                        <div style="color: white; font-weight: 600; font-size: 0.95rem;">Smart Analysis</div>
-                        <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.85rem; margin-top: 0.25rem;">Auto content extraction</div>
+                    <div class="welcome-feature-item">
+                        <div class="welcome-feature-icon">🔍</div>
+                        <div class="welcome-feature-name">Smart Analysis</div>
+                        <div class="welcome-feature-desc">Auto content extraction</div>
                     </div>
-                    <div style="background: rgba(255, 255, 255, 0.1); padding: 1.25rem; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px);">
-                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">📞</div>
-                        <div style="color: white; font-weight: 600; font-size: 0.95rem;">Contact Detection</div>
-                        <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.85rem; margin-top: 0.25rem;">Find emails &amp; phones</div>
+                    <div class="welcome-feature-item">
+                        <div class="welcome-feature-icon">📞</div>
+                        <div class="welcome-feature-name">Contact Detection</div>
+                        <div class="welcome-feature-desc">Find emails and phones</div>
                     </div>
-                    <div style="background: rgba(255, 255, 255, 0.1); padding: 1.25rem; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px);">
-                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚡</div>
-                        <div style="color: white; font-weight: 600; font-size: 0.95rem;">Lightning Fast</div>
-                        <div style="color: rgba(255, 255, 255, 0.8); font-size: 0.85rem; margin-top: 0.25rem;">Instant responses</div>
+                    <div class="welcome-feature-item">
+                        <div class="welcome-feature-icon">⚡</div>
+                        <div class="welcome-feature-name">Lightning Fast</div>
+                        <div class="welcome-feature-desc">Instant responses</div>
                     </div>
                 </div>
             </div>
-            <div style="margin-top: 3rem; display: flex; align-items: center; justify-content: center; gap: 0.75rem;">
-                <div style="width: 40px; height: 2px; background: rgba(255, 255, 255, 0.3);"></div>
-                <p style="color: rgba(255, 255, 255, 0.9); font-size: 1rem; font-weight: 600; margin: 0;">👈 Create your first chatbot in the sidebar</p>
-                <div style="width: 40px; height: 2px; background: rgba(255, 255, 255, 0.3);"></div>
+            
+            <div class="welcome-divider-container">
+                <div class="welcome-divider-line"></div>
+                <p class="welcome-divider-text">👈 Create your first chatbot in the sidebar</p>
+                <div class="welcome-divider-line"></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
