@@ -1119,128 +1119,113 @@ def main():
                 st.rerun()
     
     else:
-        # Ultra-stunning welcome screen
+        # Ultra-stunning welcome screen - Using Streamlit components instead of complex HTML
         st.markdown("""
         <style>
-            .welcome-feature-card {
-                background: rgba(255, 255, 255, 0.15);
-                backdrop-filter: blur(20px);
-                border-radius: 24px;
-                padding: 3rem;
-                max-width: 700px;
-                margin: 0 auto;
-                border: 2px solid rgba(255, 255, 255, 0.3);
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            .welcome-container {
+                text-align: center;
+                padding: 4rem 2rem;
+                position: relative;
+                z-index: 1;
             }
-            .welcome-feature-title {
-                color: white;
-                margin-bottom: 2rem;
-                font-size: 1.75rem;
-                font-weight: 700;
-                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            .welcome-icon {
+                font-size: 6rem;
+                margin-bottom: 1.5rem;
+                filter: drop-shadow(0 10px 30px rgba(102, 126, 234, 0.4));
+                animation: welcomeBounce 2s ease-in-out infinite;
             }
-            .welcome-feature-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 1.5rem;
-                text-align: left;
+            .welcome-title {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-size: 3.5rem;
+                font-weight: 900;
+                margin-bottom: 1rem;
+                font-family: 'Space Grotesk', sans-serif;
             }
-            .welcome-feature-item {
-                background: rgba(255, 255, 255, 0.1);
-                padding: 1.25rem;
-                border-radius: 16px;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                backdrop-filter: blur(10px);
-                transition: all 0.3s ease;
-            }
-            .welcome-feature-item:hover {
-                background: rgba(255, 255, 255, 0.15);
-                transform: translateY(-5px);
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            }
-            .welcome-feature-icon {
-                font-size: 2rem;
-                margin-bottom: 0.5rem;
-            }
-            .welcome-feature-name {
-                color: white;
-                font-weight: 600;
-                font-size: 0.95rem;
-            }
-            .welcome-feature-desc {
-                color: rgba(255, 255, 255, 0.8);
-                font-size: 0.85rem;
-                margin-top: 0.25rem;
-            }
-            .welcome-divider-container {
-                margin-top: 3rem;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 0.75rem;
-            }
-            .welcome-divider-line {
-                width: 40px;
-                height: 2px;
-                background: rgba(255, 255, 255, 0.3);
-            }
-            .welcome-divider-text {
+            .welcome-subtitle {
+                font-size: 1.375rem;
                 color: rgba(255, 255, 255, 0.9);
-                font-size: 1rem;
-                font-weight: 600;
-                margin: 0;
+                margin-bottom: 3rem;
+                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+                font-weight: 500;
             }
         </style>
+        <div class="welcome-container">
+            <div class="welcome-icon">🤖</div>
+            <h1 class="welcome-title">AutoBot AI Ultra</h1>
+            <p class="welcome-subtitle">Create intelligent chatbots for any company website in seconds ⚡</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        <div style="text-align: center; padding: 4rem 2rem; position: relative; z-index: 1;">
-            <div class="welcome-icon" style="font-size: 6rem; margin-bottom: 1.5rem; filter: drop-shadow(0 10px 30px rgba(102, 126, 234, 0.4));">
-                🤖
+        # Feature cards using Streamlit columns for better compatibility
+        st.markdown("""
+        <div style="max-width: 800px; margin: 2rem auto; padding: 0 1rem;">
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
+                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;
+                        transition: transform 0.3s ease;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🚀</div>
+                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Instant Creation</h3>
+                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Launch in seconds</p>
             </div>
-            <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%); 
-                       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-                       font-size: 3.5rem; font-weight: 900; margin-bottom: 1rem;
-                       font-family: 'Space Grotesk', sans-serif;
-                       text-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);">
-                AutoBot AI Ultra
-            </h1>
-            <p style="font-size: 1.375rem; color: rgba(255, 255, 255, 0.9); margin-bottom: 3rem;
-                      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3); font-weight: 500;">
-                Create intelligent chatbots for any company website in seconds ⚡
-            </p>
+            """, unsafe_allow_html=True)
             
-            <div class="welcome-feature-card">
-                <h3 class="welcome-feature-title">✨ Premium Features</h3>
-                <div class="welcome-feature-grid">
-                    <div class="welcome-feature-item">
-                        <div class="welcome-feature-icon">🚀</div>
-                        <div class="welcome-feature-name">Instant Creation</div>
-                        <div class="welcome-feature-desc">Launch in seconds</div>
-                    </div>
-                    <div class="welcome-feature-item">
-                        <div class="welcome-feature-icon">🔍</div>
-                        <div class="welcome-feature-name">Smart Analysis</div>
-                        <div class="welcome-feature-desc">Auto content extraction</div>
-                    </div>
-                    <div class="welcome-feature-item">
-                        <div class="welcome-feature-icon">📞</div>
-                        <div class="welcome-feature-name">Contact Detection</div>
-                        <div class="welcome-feature-desc">Find emails and phones</div>
-                    </div>
-                    <div class="welcome-feature-item">
-                        <div class="welcome-feature-icon">⚡</div>
-                        <div class="welcome-feature-name">Lightning Fast</div>
-                        <div class="welcome-feature-desc">Instant responses</div>
-                    </div>
-                </div>
+            st.markdown("""
+            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
+                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">📞</div>
+                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Contact Detection</h3>
+                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Find emails and phones</p>
             </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("""
+            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
+                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Smart Analysis</h3>
+                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Auto content extraction</p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            <div class="welcome-divider-container">
-                <div class="welcome-divider-line"></div>
-                <p class="welcome-divider-text">👈 Create your first chatbot in the sidebar</p>
-                <div class="welcome-divider-line"></div>
+            st.markdown("""
+            <div style="background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); 
+                        border-radius: 20px; padding: 2rem; border: 2px solid rgba(255, 255, 255, 0.3);
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); margin-bottom: 1.5rem;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">⚡</div>
+                <h3 style="color: white; font-weight: 600; margin-bottom: 0.5rem;">Lightning Fast</h3>
+                <p style="color: rgba(255, 255, 255, 0.8); margin: 0;">Instant responses</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Call to action
+        st.markdown("""
+        <div style="text-align: center; margin-top: 3rem; padding: 0 2rem;">
+            <div style="display: inline-flex; align-items: center; gap: 1rem;">
+                <div style="width: 40px; height: 2px; background: rgba(255, 255, 255, 0.4);"></div>
+                <p style="color: rgba(255, 255, 255, 0.95); font-size: 1.1rem; font-weight: 600; margin: 0;">
+                    👈 Open the sidebar to create your first chatbot
+                </p>
+                <div style="width: 40px; height: 2px; background: rgba(255, 255, 255, 0.4);"></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Add instruction to open sidebar if it's collapsed
+        st.info("💡 **Tip:** Click the **>** arrow in the top-left corner to open the sidebar and create your first chatbot!", icon="ℹ️")
 
 if __name__ == "__main__":
     main()
