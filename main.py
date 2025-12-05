@@ -238,7 +238,7 @@ class SmartAI:
         self.response_cache = {}  # Cache responses
         
     def call_llm(self, prompt: str) -> str:
-        """Call LLM with smart fallbacks"""
+        """Call LLM with smart fallbacks and better error handling"""
         
         if not OPENROUTER_API_KEY:
             return "⚠️ API key not set. Please configure OPENROUTER_API_KEY."
@@ -253,49 +253,98 @@ class SmartAI:
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost:8501",
+            "X-Title": "Universal Chatbot"
         }
         
         # Try multiple models
-        for model in MODELS:
-            try:
-                print(f"[AI] Trying {model}...")
-                
-                payload = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
-                    "max_tokens": 400,
-                }
-                
-                resp = requests.post(
-                    OPENROUTER_API_BASE,
-                    headers=headers,
-                    json=payload,
-                    timeout=30
-                )
-                
-                if resp.status_code == 200:
-                    data = resp.json()
+        for model_idx, model in enumerate(MODELS):
+            for attempt in range(2):  # 2 attempts per model
+                try:
+                    print(f"[AI] Model {model_idx+1}/{len(MODELS)}: {model} (attempt {attempt+1})")
                     
-                    if "choices" in data and len(data["choices"]) > 0:
-                        content = data["choices"][0].get("message", {}).get("content", "")
-                        if content and len(content.strip()) > 10:
-                            print(f"[AI] ✅ Success with {model}")
-                            # Cache the response
-                            self.response_cache[cache_key] = content.strip()
-                            return content.strip()
+                    payload = {
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.7,
+                        "max_tokens": 400,
+                    }
+                    
+                    resp = requests.post(
+                        OPENROUTER_API_BASE,
+                        headers=headers,
+                        json=payload,
+                        timeout=45
+                    )
+                    
+                    print(f"[AI] Status: {resp.status_code}")
+                    
+                    if resp.status_code == 200:
+                        try:
+                            data = resp.json()
+                            print(f"[AI] Response keys: {list(data.keys())}")
+                            
+                            # Check for API error in response
+                            if "error" in data:
+                                error_msg = data["error"].get("message", str(data["error"]))
+                                print(f"[AI] API Error: {error_msg}")
+                                # Try next model
+                                break
+                            
+                            if "choices" in data and len(data["choices"]) > 0:
+                                content = data["choices"][0].get("message", {}).get("content", "")
+                                if content and len(content.strip()) > 5:
+                                    print(f"[AI] ✅ Success! Length: {len(content)}")
+                                    # Cache the response
+                                    self.response_cache[cache_key] = content.strip()
+                                    return content.strip()
+                                else:
+                                    print(f"[AI] Empty content received")
+                            else:
+                                print(f"[AI] No choices in response: {data}")
+                        
+                        except Exception as e:
+                            print(f"[AI] JSON parse error: {e}")
+                            print(f"[AI] Raw response: {resp.text[:300]}")
+                    
+                    elif resp.status_code == 401:
+                        return "⚠️ Invalid API key. Get one from https://openrouter.ai/keys"
+                    
+                    elif resp.status_code == 402:
+                        print(f"[AI] No credits remaining")
+                        # Try next model
+                        break
+                    
+                    elif resp.status_code == 429:
+                        print(f"[AI] Rate limited, waiting...")
+                        time.sleep(3)
+                        continue
+                    
+                    else:
+                        print(f"[AI] Error {resp.status_code}: {resp.text[:200]}")
+                    
+                    # Retry with same model
+                    if attempt < 1:
+                        time.sleep(2)
+                        continue
+                    
+                except requests.exceptions.Timeout:
+                    print(f"[AI] Timeout with {model}")
+                    if attempt < 1:
+                        time.sleep(2)
+                        continue
                 
-                elif resp.status_code == 401:
-                    return "⚠️ Invalid API key. Get one from https://openrouter.ai/keys"
-                
-                print(f"[AI] Failed with {model}, trying next...")
+                except Exception as e:
+                    print(f"[AI] Exception with {model}: {type(e).__name__}: {str(e)[:100]}")
+                    if attempt < 1:
+                        time.sleep(2)
+                        continue
+            
+            # Small delay before trying next model
+            if model_idx < len(MODELS) - 1:
                 time.sleep(1)
-                
-            except Exception as e:
-                print(f"[AI] Error with {model}: {e}")
-                continue
         
-        return "⚠️ Could not get AI response. Please check your API key and try again."
+        # If all models fail, return helpful fallback
+        return "I'm having trouble connecting to the AI service right now. However, I can still help! Try asking about contact information, or visit the company website for more details."
 
 # =============================================================================
 # UNIVERSAL COMPANY CHATBOT
@@ -359,11 +408,12 @@ class UniversalChatbot:
         question_lower = question.lower().strip()
         
         # Handle greetings
-        if question_lower in ['hi', 'hello', 'hey', 'hai']:
-            return f"👋 Hello! I'm an AI assistant for {self.company_name}. How can I help you today?"
+        greeting_words = ['hi', 'hello', 'hey', 'hai', 'good morning', 'good afternoon', 'good evening']
+        if any(question_lower == g or question_lower.startswith(g + ' ') for g in greeting_words):
+            return f"👋 Hello! I'm an AI assistant for **{self.company_name}**. I can help you with:\n\n• Information about their services/products\n• Contact details\n• Pricing and offerings\n• Any questions about the company\n\nWhat would you like to know?"
         
         # Handle contact info requests
-        contact_keywords = ['email', 'contact', 'phone', 'call', 'reach', 'address', 'location']
+        contact_keywords = ['email', 'contact', 'phone', 'call', 'reach', 'address', 'location', 'office']
         if any(kw in question_lower for kw in contact_keywords):
             msg = f"📞 **Contact Information for {self.company_name}**\n\n"
             
@@ -384,23 +434,60 @@ class UniversalChatbot:
         # Get relevant context
         context = self.get_context(question)
         
-        if not context:
-            return f"I don't have specific information about that. Please visit {self.website_url} or try asking something else about {self.company_name}."
+        if not context or len(context) < 50:
+            # Try to give a general answer from all content
+            all_content = "\n".join([p['content'][:500] for p in self.pages[:3]])
+            if all_content:
+                context = all_content
+            else:
+                return f"I don't have specific information about that yet. Please visit {self.website_url} or try asking about their services, contact info, or general company information."
         
         # Build prompt
         prompt = f"""You are a helpful AI assistant for {self.company_name}.
 
-Based on the following information from their website, answer the user's question clearly and concisely.
+Based on the following information from their website, answer the user's question clearly and naturally.
 
-WEBSITE CONTENT:
+COMPANY INFORMATION:
 {context[:2500]}
 
 USER QUESTION: {question}
 
-Provide a helpful answer in 2-4 sentences. If the information isn't in the context, say so politely."""
+Instructions:
+- Provide a helpful, conversational answer in 2-4 sentences
+- Be specific and use details from the context
+- If the exact information isn't available, provide related information that might help
+- Don't say "based on the context" - just answer naturally
+- Be friendly and professional
+
+Answer:"""
 
         # Get AI response
         answer = self.ai.call_llm(prompt)
+        
+        # If AI failed but we have context, provide a simple fallback
+        if answer.startswith("⚠️") or answer.startswith("I'm having trouble"):
+            # Try simple keyword-based answer
+            if "service" in question_lower or "offer" in question_lower or "do" in question_lower:
+                # Extract key sentences about services
+                service_keywords = ['service', 'offer', 'provide', 'solution', 'specialize', 'expert']
+                relevant_lines = []
+                for page in self.pages[:3]:
+                    for line in page['content'].split('\n'):
+                        if any(kw in line.lower() for kw in service_keywords) and len(line) > 40:
+                            relevant_lines.append(line.strip())
+                            if len(relevant_lines) >= 3:
+                                break
+                    if len(relevant_lines) >= 3:
+                        break
+                
+                if relevant_lines:
+                    return f"Based on their website, {self.company_name} offers:\n\n" + "\n\n".join(relevant_lines[:3])
+            
+            # For other questions, provide what we know
+            if self.pages:
+                summary = self.pages[0]['content'][:400]
+                return f"Here's what I found about {self.company_name}:\n\n{summary}\n\nFor more details, visit {self.website_url}"
+        
         return answer
 
 # =============================================================================
@@ -440,6 +527,23 @@ def main():
                 os.environ['OPENROUTER_API_KEY'] = temp_key
                 st.success("✅ Key set! Refresh the page.")
         return
+    
+    # API Key Test
+    with st.expander("🧪 Test API Key", expanded=False):
+        st.write(f"**API Key Set:** ✅")
+        st.write(f"**Key Preview:** `{OPENROUTER_API_KEY[:10]}...{OPENROUTER_API_KEY[-4:]}`")
+        
+        if st.button("Test API Connection"):
+            with st.spinner("Testing..."):
+                test_ai = SmartAI()
+                result = test_ai.call_llm("Say 'API is working!' in exactly 3 words.")
+                
+                if result.startswith("⚠️"):
+                    st.error(f"❌ Test failed: {result}")
+                    st.info("**Troubleshooting:**\n1. Check your API key at https://openrouter.ai/keys\n2. Verify you have credits\n3. Check console logs for details")
+                else:
+                    st.success(f"✅ API is working! Response: {result}")
+                    st.info("Your chatbot should work properly now!")
     
     # Sidebar - Company Management
     st.sidebar.title("🏢 Company Management")
