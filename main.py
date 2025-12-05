@@ -185,7 +185,7 @@ class FastScraper:
         except:
             pass
         
-        return urls[:40]
+        return urls[:80]
     
     def scrape_website(self, base_url: str, progress_callback=None) -> Tuple[List[Dict], Dict]:
         """Scrape website in parallel - FAST!"""
