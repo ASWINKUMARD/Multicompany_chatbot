@@ -59,7 +59,7 @@ Base = declarative_base()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+MODEL = "kwaipilot/kat-coder-pro:free"
 
 PRIORITY_PAGES = ["", "about", "services", "solutions", "products", "contact", "team"]
 
