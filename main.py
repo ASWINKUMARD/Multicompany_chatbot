@@ -366,7 +366,7 @@ class UniversalChatbot:
         # Handle greetings
         greeting_words = ['hi', 'hello', 'hey', 'hai', 'good morning', 'good afternoon', 'good evening']
         if any(question_lower == g or question_lower.startswith(g + ' ') for g in greeting_words):
-            return f"👋 Hello! I'm an AI assistant for **{self.company_name}**. I can help you with:\n\n• Information about their services/products\n• Contact details\n• Pricing and offerings\n• Any questions about the company\n\nWhat would you like to know?"
+            return f"👋 Hello! I'm an AI assistant for **{self.company_name}**. How Can I Assist You ?"
         
         # Handle contact info requests
         contact_keywords = ['email', 'contact', 'phone', 'call', 'reach', 'address', 'location', 'office']
