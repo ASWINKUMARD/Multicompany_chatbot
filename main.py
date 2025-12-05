@@ -36,7 +36,11 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
 
 # Fast, reliable models
-MODEL = "kwaipilot/kat-coder-pro:free"
+MODELS = [
+    "google/gemini-2.0-flash-exp:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "microsoft/phi-3-mini-128k-instruct:free"
+]
 
 # =============================================================================
 # FAST PARALLEL WEB SCRAPER
@@ -77,8 +81,8 @@ class FastScraper:
                     phones.add(phone.strip())
         
         return {
-            "emails": sorted(list(emails))[:2],  # Limit to 5
-            "phones": sorted(list(phones))[:2]
+            "emails": sorted(list(emails))[:5],  # Limit to 5
+            "phones": sorted(list(phones))[:5]
         }
     
     def scrape_page(self, url: str) -> Optional[Dict]:
@@ -185,7 +189,7 @@ class FastScraper:
         except:
             pass
         
-        return urls[:40]  # Limit to 15 URLs max
+        return urls[:15]  # Limit to 15 URLs max
     
     def scrape_website(self, base_url: str, progress_callback=None) -> Tuple[List[Dict], Dict]:
         """Scrape website in parallel - FAST!"""
