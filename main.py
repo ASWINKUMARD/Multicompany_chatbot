@@ -1,22 +1,3 @@
-"""
-UNIVERSAL AI CHATBOT - READY FOR ANY COMPANY
-Fast, intelligent chatbot that works with ANY company website automatically
-
-FEATURES:
-1. No pre-configuration needed - works with any company
-2. Fast parallel scraping (5-10 seconds)
-3. Smart content extraction and caching
-4. Instant AI responses
-5. Automatic contact info detection
-6. In-memory storage (no database issues)
-
-Run with:
-    streamlit run app.py
-    
-Set environment variable:
-    export OPENROUTER_API_KEY="your_key_here"
-"""
-
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -29,18 +10,11 @@ from typing import Optional, Dict, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
 
-# Fast, reliable model
 MODEL = "kwaipilot/kat-coder-pro:free"
 
-# =============================================================================
-# FAST PARALLEL WEB SCRAPER
-# =============================================================================
 class FastScraper:
     def __init__(self):
         self.headers = {
@@ -77,8 +51,8 @@ class FastScraper:
                     phones.add(phone.strip())
         
         return {
-            "emails": sorted(list(emails))[:2],
-            "phones": sorted(list(phones))[:2]
+            "emails": sorted(list(emails))[:5],  # Increased from 2 to 5
+            "phones": sorted(list(phones))[:5]   # Increased from 2 to 5
         }
     
     def scrape_page(self, url: str) -> Optional[Dict]:
@@ -125,7 +99,7 @@ class FastScraper:
                 if body:
                     content = body.get_text(separator='\n', strip=True)
             
-            # Clean and filter
+            # Clean and filter - optimized for speed
             lines = []
             seen = set()
             for line in content.split('\n'):
@@ -133,7 +107,7 @@ class FastScraper:
                 if len(line) > 25 and line.lower() not in seen:
                     lines.append(line)
                     seen.add(line.lower())
-                if len(lines) >= 40:
+                if len(lines) >= 50:  # Increased to 50 lines per page
                     break
             
             content = '\n'.join(lines)
@@ -144,7 +118,7 @@ class FastScraper:
             return {
                 "url": url,
                 "title": title[:200],
-                "content": content[:3000]
+                "content": content[:4000]  # Increased content size per page
             }
             
         except Exception as e:
@@ -173,7 +147,7 @@ class FastScraper:
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 domain = urlparse(base_url).netloc
                 
-                for link in soup.find_all('a', href=True)[:30]:
+                for link in soup.find_all('a', href=True)[:60]:  # Increased to 60 links
                     href = link['href']
                     full_url = urljoin(base_url, href)
                     
@@ -185,7 +159,7 @@ class FastScraper:
         except:
             pass
         
-        return urls[:40]
+        return urls[:50]  # Return up to 50 URLs
     
     def scrape_website(self, base_url: str, progress_callback=None) -> Tuple[List[Dict], Dict]:
         """Scrape website in parallel - FAST!"""
@@ -226,9 +200,6 @@ class FastScraper:
         
         return pages, contact_info
 
-# =============================================================================
-# SMART AI RESPONDER WITH CACHING
-# =============================================================================
 class SmartAI:
     def __init__(self):
         self.response_cache = {}
@@ -334,9 +305,6 @@ class SmartAI:
         # If all attempts fail, return helpful fallback
         return "I'm having trouble connecting to the AI service right now. However, I can still help! Try asking about contact information, or visit the company website for more details."
 
-# =============================================================================
-# UNIVERSAL COMPANY CHATBOT
-# =============================================================================
 class UniversalChatbot:
     def __init__(self, company_name: str, website_url: str):
         self.company_name = company_name
@@ -380,10 +348,10 @@ class UniversalChatbot:
         
         scored_pages.sort(reverse=True, key=lambda x: x[0])
         
-        # Get top 3 pages
+        # Get top 5 pages for better context
         context_parts = []
-        for score, page in scored_pages[:3]:
-            context_parts.append(page['content'][:800])
+        for score, page in scored_pages[:5]:
+            context_parts.append(page['content'][:1000])  # Increased content per page
         
         return "\n\n---\n\n".join(context_parts)
     
@@ -478,9 +446,6 @@ Answer:"""
         
         return answer
 
-# =============================================================================
-# STREAMLIT APP
-# =============================================================================
 def init_session():
     """Initialize session state"""
     if 'chatbots' not in st.session_state:
@@ -593,7 +558,7 @@ def main():
         st.markdown("### 🎯 Features:")
         st.markdown("""
         - ✨ **Instant Setup**: Just provide company name and website
-        - 🚀 **Fast Scraping**: Intelligent parallel scraping in 5-10 seconds
+        - 🚀 **Fast Scraping**: Intelligent parallel scraping of up to 50 pages in 5-10 seconds
         - 🧠 **Smart AI**: Understands context and provides accurate answers
         - 📞 **Auto Contact**: Automatically extracts contact information
         - 💾 **No Database**: Everything in memory, no setup needed
@@ -602,7 +567,6 @@ def main():
         
         st.markdown("### 📝 Example Companies to Try:")
         st.markdown("""
-        - Natoma Singapore (cleaning services)
         - Any tech company
         - Any restaurant or cafe
         - Any retail store
