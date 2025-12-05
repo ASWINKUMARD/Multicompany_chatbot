@@ -1,4 +1,4 @@
-# app.py - Complete Production-Ready Chatbot with Stunning UI
+# app.py - Stunning Chatbot UI matching React sample design
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -15,239 +15,380 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "kwaipilot/kat-coder-pro:free"
 
-# Custom CSS for Stunning UI
+# Enhanced CSS matching the React sample design
 CUSTOM_CSS = """
 <style>
-    /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     
-    /* Global Styles */
     * {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     
-    /* Hide Streamlit Branding */
+    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     .stDeployButton {display: none;}
     
-    /* Main Container */
+    /* Main container */
     .main {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         padding: 0;
     }
     
-    /* Custom Header */
-    .custom-header {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        padding: 1.5rem 2rem;
-        border-radius: 0 0 20px 20px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-        margin-bottom: 2rem;
+    .block-container {
+        max-width: 1200px;
+        padding: 2rem 1rem;
     }
     
-    .custom-header h1 {
+    /* Glassmorphism card effect */
+    .chat-container {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 
+            0 8px 32px 0 rgba(31, 38, 135, 0.15),
+            0 2px 8px 0 rgba(31, 38, 135, 0.1);
+        padding: 0;
+        overflow: hidden;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    
+    /* Chat header - matching React design */
+    .chat-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2.5rem;
-        font-weight: 700;
-        margin: 0;
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         display: flex;
         align-items: center;
         gap: 1rem;
     }
     
-    .custom-header p {
-        color: #64748b;
-        margin: 0.5rem 0 0 0;
-        font-size: 1rem;
+    .bot-avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        position: relative;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
     
-    /* Chat Container */
-    .chat-container {
-        background: white;
-        border-radius: 20px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-        padding: 2rem;
-        max-width: 900px;
-        margin: 0 auto;
-        min-height: 600px;
+    .status-indicator {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        width: 12px;
+        height: 12px;
+        background: #10b981;
+        border: 2px solid white;
+        border-radius: 50%;
+        animation: pulse-dot 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
     }
     
-    /* Message Bubbles */
+    @keyframes pulse-dot {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.1); opacity: 0.8; }
+    }
+    
+    .header-text {
+        flex: 1;
+        color: white;
+    }
+    
+    .header-text h3 {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+        line-height: 1.2;
+    }
+    
+    .header-text p {
+        margin: 0.25rem 0 0 0;
+        font-size: 0.75rem;
+        opacity: 0.9;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+    
+    .online-dot {
+        width: 6px;
+        height: 6px;
+        background: #10b981;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    
+    /* Messages area with subtle gradient */
+    .messages-container {
+        background: linear-gradient(180deg, #fafbfc 0%, #f5f7fa 100%);
+        padding: 1.5rem;
+        min-height: 500px;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    
+    /* Message bubbles - matching React design exactly */
     .stChatMessage {
         background: transparent !important;
-        padding: 1rem 0 !important;
+        padding: 0.75rem 0 !important;
+        margin-bottom: 0.5rem !important;
     }
     
-    .stChatMessage[data-testid*="user"] {
+    /* User message styling */
+    div[data-testid="stChatMessageContent"] {
+        padding: 0 !important;
         background: transparent !important;
     }
     
-    .stChatMessage[data-testid*="assistant"] {
-        background: transparent !important;
+    .stChatMessage[data-testid*="user-message"] {
+        display: flex;
+        flex-direction: row-reverse;
     }
     
-    /* User Message */
-    .stChatMessage[data-testid*="user"] > div {
+    .stChatMessage[data-testid*="user-message"] > div {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         color: white !important;
         border-radius: 18px 18px 4px 18px !important;
-        padding: 1rem 1.5rem !important;
+        padding: 0.875rem 1.25rem !important;
         box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3) !important;
+        max-width: 80% !important;
         margin-left: auto !important;
-        max-width: 80% !important;
+        font-size: 0.9375rem !important;
+        line-height: 1.6 !important;
     }
     
-    /* Assistant Message */
-    .stChatMessage[data-testid*="assistant"] > div {
-        background: #f1f5f9 !important;
+    /* Assistant message styling */
+    .stChatMessage[data-testid*="assistant-message"] > div {
+        background: white !important;
         color: #1e293b !important;
+        border: 1px solid #e2e8f0 !important;
         border-radius: 18px 18px 18px 4px !important;
-        padding: 1rem 1.5rem !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+        padding: 0.875rem 1.25rem !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
         max-width: 80% !important;
+        font-size: 0.9375rem !important;
+        line-height: 1.6 !important;
     }
     
-    /* Chat Input */
+    /* Avatar styling for messages */
+    .stChatMessage > div:first-child {
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 50% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-shrink: 0 !important;
+        font-size: 16px !important;
+    }
+    
+    /* User avatar */
+    .stChatMessage[data-testid*="user-message"] > div:first-child {
+        background: white !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #64748b !important;
+    }
+    
+    /* Assistant avatar */
+    .stChatMessage[data-testid*="assistant-message"] > div:first-child {
+        background: rgba(102, 126, 234, 0.1) !important;
+        color: #667eea !important;
+    }
+    
+    /* Typing indicator */
+    .typing-indicator {
+        display: flex;
+        gap: 0.25rem;
+        padding: 1rem;
+        background: white;
+        border-radius: 18px 18px 18px 4px;
+        border: 1px solid #e2e8f0;
+        width: fit-content;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    
+    .typing-dot {
+        width: 6px;
+        height: 6px;
+        background: rgba(102, 126, 234, 0.5);
+        border-radius: 50%;
+        animation: typing 1.4s infinite;
+    }
+    
+    .typing-dot:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+    
+    .typing-dot:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+    
+    @keyframes typing {
+        0%, 60%, 100% { transform: translateY(0); }
+        30% { transform: translateY(-8px); }
+    }
+    
+    /* Input area - matching React design */
+    .input-container {
+        padding: 1.25rem 1.5rem;
+        background: rgba(248, 250, 252, 0.8);
+        backdrop-filter: blur(10px);
+        border-top: 1px solid #e2e8f0;
+    }
+    
     .stChatInputContainer {
-        border: none !important;
         background: white !important;
-        border-radius: 25px !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
-        padding: 0.5rem !important;
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+        transition: all 0.3s ease !important;
+        padding: 0 !important;
     }
     
-    .stChatInputContainer > div {
-        border: 2px solid #e2e8f0 !important;
-        border-radius: 25px !important;
-        background: white !important;
+    .stChatInputContainer:focus-within {
+        border-color: rgba(102, 126, 234, 0.4) !important;
+        box-shadow: 
+            0 2px 8px rgba(0, 0, 0, 0.04),
+            0 0 0 3px rgba(102, 126, 234, 0.1) !important;
     }
     
     .stChatInputContainer input {
-        padding: 1rem 1.5rem !important;
-        font-size: 1rem !important;
+        padding: 0.875rem 3rem 0.875rem 1.25rem !important;
+        font-size: 0.9375rem !important;
         border: none !important;
+        background: transparent !important;
     }
     
-    /* Sidebar */
-    .css-1d391kg, [data-testid="stSidebar"] {
+    .stChatInputContainer input::placeholder {
+        color: #94a3b8 !important;
+    }
+    
+    /* Send button styling */
+    .stChatInputContainer button {
+        position: absolute !important;
+        right: 4px !important;
+        top: 4px !important;
+        width: 40px !important;
+        height: 40px !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border: none !important;
+        border-radius: 12px !important;
+        color: white !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 0 10px -3px #667eea !important;
+    }
+    
+    .stChatInputContainer button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 0 15px -2px #667eea !important;
+    }
+    
+    /* Footer branding - matching React design */
+    .chat-footer {
+        text-align: center;
+        padding: 0.75rem 1.5rem;
+        background: rgba(248, 250, 252, 0.6);
+        border-top: 1px solid rgba(226, 232, 240, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+    }
+    
+    .sparkles-icon {
+        width: 12px;
+        height: 12px;
+        opacity: 0.5;
+    }
+    
+    /* Sidebar styling */
+    section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #667eea 0%, #764ba2 100%) !important;
     }
     
-    .css-1d391kg h2, [data-testid="stSidebar"] h2,
-    .css-1d391kg h3, [data-testid="stSidebar"] h3,
-    .css-1d391kg p, [data-testid="stSidebar"] p,
-    .css-1d391kg label, [data-testid="stSidebar"] label {
+    section[data-testid="stSidebar"] * {
         color: white !important;
     }
     
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 0.75rem 2rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    section[data-testid="stSidebar"] .stButton > button {
+        background: rgba(255, 255, 255, 0.2) !important;
+        backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        color: white !important;
+        font-weight: 500 !important;
     }
     
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: rgba(255, 255, 255, 0.3) !important;
+        transform: translateY(-1px);
     }
     
-    /* Input Fields */
-    .stTextInput > div > div > input {
-        border-radius: 12px;
-        border: 2px solid #e2e8f0;
-        padding: 0.75rem 1rem;
-        font-size: 1rem;
-        transition: all 0.3s ease;
+    section[data-testid="stSidebar"] .stTextInput input {
+        background: rgba(255, 255, 255, 0.9) !important;
+        color: #1e293b !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
     }
     
-    .stTextInput > div > div > input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    section[data-testid="stSidebar"] .stTextInput input::placeholder {
+        color: #64748b !important;
     }
     
-    /* Expander */
+    /* Expander styling */
     .streamlit-expanderHeader {
-        background: #f8fafc;
-        border-radius: 12px;
-        padding: 1rem;
-        font-weight: 600;
+        background: rgba(255, 255, 255, 0.15) !important;
+        backdrop-filter: blur(10px) !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        color: white !important;
+        font-weight: 600 !important;
     }
     
-    /* Success/Error Messages */
-    .stSuccess {
-        background: #10b981;
-        color: white;
-        border-radius: 12px;
-        padding: 1rem;
+    /* Success/Error/Info messages */
+    .stSuccess, .stError, .stWarning, .stInfo {
+        border-radius: 12px !important;
+        border: none !important;
+        padding: 1rem !important;
+        font-weight: 500 !important;
     }
     
-    .stError {
-        background: #ef4444;
-        color: white;
-        border-radius: 12px;
-        padding: 1rem;
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
     }
     
-    /* Feature Cards */
-    .feature-card {
-        background: white;
-        border-radius: 16px;
-        padding: 1.5rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        margin: 1rem 0;
-        transition: all 0.3s ease;
+    ::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 4px;
     }
     
-    .feature-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
     }
     
-    /* Loading Spinner */
-    .stSpinner > div {
-        border-top-color: #667eea !important;
+    ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
     }
     
-    /* Badges */
-    .badge {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.875rem;
-        font-weight: 600;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-    }
-    
-    /* Company List */
-    .company-item {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 12px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    
-    /* Animation */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .animate-fade-in {
-        animation: fadeIn 0.5s ease-out;
+    /* Smooth animations */
+    * {
+        transition: background-color 0.2s ease, border-color 0.2s ease;
     }
 </style>
 """
@@ -496,7 +637,7 @@ class UniversalChatbot:
         
         greeting_words = ['hi', 'hello', 'hey', 'hai']
         if any(question_lower == g or question_lower.startswith(g + ' ') for g in greeting_words):
-            return f"👋 Hello! I'm the AI assistant for **{self.company_name}**. How can I help you today?"
+            return f"👋 Hi there! I'm the AI assistant for {self.company_name}. How can I help you today?"
         
         contact_keywords = ['email', 'contact', 'phone', 'call', 'reach']
         if any(kw in question_lower for kw in contact_keywords):
@@ -545,7 +686,7 @@ def init_session():
 
 def main():
     st.set_page_config(
-        page_title="AutoBot AI - Universal Chatbot",
+        page_title="AutoBot AI",
         page_icon="🤖",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -555,14 +696,6 @@ def main():
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     
     init_session()
-    
-    # Custom Header
-    st.markdown("""
-    <div class="custom-header">
-        <h1>🤖 AutoBot AI</h1>
-        <p>Create AI-powered chatbots for any company in seconds</p>
-    </div>
-    """, unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
@@ -578,7 +711,7 @@ def main():
                 else:
                     slug = re.sub(r'[^a-z0-9]+', '-', company_name.lower()).strip('-')
                     
-                    with st.spinner(f"🔍 Analyzing {company_name}..."):
+                    with st.spinner(f"Analyzing {company_name}..."):
                         progress = st.progress(0)
                         status = st.empty()
                         
@@ -593,24 +726,18 @@ def main():
                             st.session_state.chatbots[slug] = chatbot
                             st.session_state.current_company = slug
                             st.session_state.chat_history = []
-                            st.success(f"✅ Chatbot ready!")
+                            st.success("✅ Chatbot ready!")
                             st.rerun()
                         else:
-                            st.error(f"❌ Error: {chatbot.error}")
+                            st.error(f"❌ {chatbot.error}")
         
         if st.session_state.chatbots:
-            st.markdown("### 💬 Your Chatbots")
+            st.markdown("### 💬 Active Chatbots")
             
             for slug, bot in st.session_state.chatbots.items():
-                is_active = st.session_state.current_company == slug
-                
                 col1, col2 = st.columns([4, 1])
                 with col1:
-                    if st.button(
-                        f"{'✓ ' if is_active else ''}{bot.company_name}",
-                        key=f"select_{slug}",
-                        use_container_width=True
-                    ):
+                    if st.button(bot.company_name, key=f"select_{slug}", use_container_width=True):
                         st.session_state.current_company = slug
                         st.session_state.chat_history = []
                         st.rerun()
@@ -620,92 +747,120 @@ def main():
                         if st.session_state.current_company == slug:
                             st.session_state.current_company = None
                         st.rerun()
-        
-        st.markdown("---")
-        st.markdown("### 📊 Stats")
-        st.metric("Active Chatbots", len(st.session_state.chatbots))
-        
-        if st.session_state.current_company:
-            bot = st.session_state.chatbots[st.session_state.current_company]
-            st.metric("Pages Indexed", len(bot.pages))
-            st.metric("Contacts Found", len(bot.contact_info['emails']) + len(bot.contact_info['phones']))
     
     # Main Content
-    if not st.session_state.current_company:
-        # Landing Page
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            <div class="feature-card">
-                <h3>⚡ Lightning Fast</h3>
-                <p>Scrapes and indexes 50+ pages in under 10 seconds</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div class="feature-card">
-                <h3>🧠 AI-Powered</h3>
-                <p>Understands context and provides accurate answers</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown("""
-            <div class="feature-card">
-                <h3>🌐 Universal</h3>
-                <p>Works with any company website automatically</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("### 🎯 How It Works")
-        st.markdown("""
-        1. **Enter Company Details** - Just provide a name and website URL
-        2. **AI Scrapes & Learns** - We automatically analyze their website
-        3. **Start Chatting** - Ask anything about the company instantly
-        4. **Embed Anywhere** - Get the widget code to embed on your site
-        """)
-        
-    else:
+    if st.session_state.current_company:
         chatbot = st.session_state.chatbots[st.session_state.current_company]
         
-        # Chat Header
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown(f"### 💬 Chat with {chatbot.company_name}")
-        with col2:
-            if st.button("🔄 Refresh"):
-                with st.spinner("Refreshing..."):
-                    chatbot.initialize()
-                    st.rerun()
+        # Chat container with header
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         
-        # Chat Messages
+        # Chat header
+        st.markdown(f"""
+        <div class="chat-header">
+            <div class="bot-avatar">
+                🤖
+                <span class="status-indicator"></span>
+            </div>
+            <div class="header-text">
+                <h3>{chatbot.company_name} Assistant</h3>
+                <p><span class="online-dot"></span> Replies instantly</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+# Messages container
+        st.markdown('<div class="messages-container">', unsafe_allow_html=True)
+        
+        # Display chat history
         for msg in st.session_state.chat_history:
-            with st.chat_message(msg["role"]):
+            with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
                 st.markdown(msg["content"])
         
-        # Chat Input
-        if user_input := st.chat_input("Ask anything..."):
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Input container
+        st.markdown('<div class="input-container">', unsafe_allow_html=True)
+        
+        # Chat input
+        user_input = st.chat_input("Type your message here...")
+        
+        if user_input:
+            # Add user message to history
             st.session_state.chat_history.append({
                 "role": "user",
                 "content": user_input
             })
             
-            with st.chat_message("user"):
-                st.markdown(user_input)
+            # Get bot response
+            with st.spinner(""):
+                response = chatbot.ask(user_input)
             
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    answer = chatbot.ask(user_input)
-                st.markdown(answer)
-            
+            # Add assistant response to history
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": answer
+                "content": response
             })
             
+            # Rerun to display new messages
             st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Chat footer
+        st.markdown("""
+        <div class="chat-footer">
+            <svg class="sparkles-icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0L14.5 8.5L23 11L14.5 13.5L12 22L9.5 13.5L1 11L9.5 8.5L12 0Z"/>
+            </svg>
+            <span>Powered by AI</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Additional info below chat
+        with st.expander("ℹ️ Chatbot Information"):
+            st.write(f"**Company:** {chatbot.company_name}")
+            st.write(f"**Website:** {chatbot.website_url}")
+            st.write(f"**Pages Scraped:** {len(chatbot.pages)}")
+            st.write(f"**Emails Found:** {len(chatbot.contact_info['emails'])}")
+            st.write(f"**Phones Found:** {len(chatbot.contact_info['phones'])}")
+            
+            if st.button("🗑️ Clear Chat History"):
+                st.session_state.chat_history = []
+                st.rerun()
+    
+    else:
+        # Welcome screen when no chatbot is selected
+        st.markdown("""
+        <div style="text-align: center; padding: 4rem 2rem;">
+            <div style="font-size: 5rem; margin-bottom: 1rem;">🤖</div>
+            <h1 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                       font-size: 3rem; font-weight: 800; margin-bottom: 1rem;">
+                AutoBot AI
+            </h1>
+            <p style="font-size: 1.25rem; color: #64748b; margin-bottom: 2rem;">
+                Create intelligent chatbots for any company website in seconds
+            </p>
+            <div style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+                        border-radius: 16px; padding: 2rem; max-width: 600px; margin: 0 auto;
+                        border: 1px solid rgba(102, 126, 234, 0.2);">
+                <h3 style="color: #1e293b; margin-bottom: 1rem;">✨ Features</h3>
+                <ul style="text-align: left; color: #475569; line-height: 2;">
+                    <li>🚀 Instant chatbot creation from any website</li>
+                    <li>🔍 Automatic content extraction and analysis</li>
+                    <li>📞 Smart contact information detection</li>
+                    <li>💬 Natural conversation with AI</li>
+                    <li>⚡ Lightning-fast responses</li>
+                </ul>
+            </div>
+            <p style="margin-top: 2rem; color: #94a3b8; font-size: 0.875rem;">
+                👈 Get started by creating a new chatbot in the sidebar
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
