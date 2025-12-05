@@ -1121,6 +1121,77 @@ def main():
     else:
         # Ultra-stunning welcome screen
         st.markdown("""
+        <style>
+            .welcome-feature-card {
+                background: rgba(255, 255, 255, 0.15);
+                backdrop-filter: blur(20px);
+                border-radius: 24px;
+                padding: 3rem;
+                max-width: 700px;
+                margin: 0 auto;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            }
+            .welcome-feature-title {
+                color: white;
+                margin-bottom: 2rem;
+                font-size: 1.75rem;
+                font-weight: 700;
+                text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            }
+            .welcome-feature-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 1.5rem;
+                text-align: left;
+            }
+            .welcome-feature-item {
+                background: rgba(255, 255, 255, 0.1);
+                padding: 1.25rem;
+                border-radius: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                backdrop-filter: blur(10px);
+                transition: all 0.3s ease;
+            }
+            .welcome-feature-item:hover {
+                background: rgba(255, 255, 255, 0.15);
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            }
+            .welcome-feature-icon {
+                font-size: 2rem;
+                margin-bottom: 0.5rem;
+            }
+            .welcome-feature-name {
+                color: white;
+                font-weight: 600;
+                font-size: 0.95rem;
+            }
+            .welcome-feature-desc {
+                color: rgba(255, 255, 255, 0.8);
+                font-size: 0.85rem;
+                margin-top: 0.25rem;
+            }
+            .welcome-divider-container {
+                margin-top: 3rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.75rem;
+            }
+            .welcome-divider-line {
+                width: 40px;
+                height: 2px;
+                background: rgba(255, 255, 255, 0.3);
+            }
+            .welcome-divider-text {
+                color: rgba(255, 255, 255, 0.9);
+                font-size: 1rem;
+                font-weight: 600;
+                margin: 0;
+            }
+        </style>
+        
         <div style="text-align: center; padding: 4rem 2rem; position: relative; z-index: 1;">
             <div class="welcome-icon" style="font-size: 6rem; margin-bottom: 1.5rem; filter: drop-shadow(0 10px 30px rgba(102, 126, 234, 0.4));">
                 🤖
@@ -1136,71 +1207,6 @@ def main():
                       text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3); font-weight: 500;">
                 Create intelligent chatbots for any company website in seconds ⚡
             </p>
-            
-            <style>
-                .welcome-feature-card {
-                    background: rgba(255, 255, 255, 0.15);
-                    backdrop-filter: blur(20px);
-                    border-radius: 24px;
-                    padding: 3rem;
-                    max-width: 700px;
-                    margin: 0 auto;
-                    border: 2px solid rgba(255, 255, 255, 0.3);
-                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                }
-                .welcome-feature-title {
-                    color: white;
-                    margin-bottom: 2rem;
-                    font-size: 1.75rem;
-                    font-weight: 700;
-                    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-                }
-                .welcome-feature-grid {
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 1.5rem;
-                    text-align: left;
-                }
-                .welcome-feature-item {
-                    background: rgba(255, 255, 255, 0.1);
-                    padding: 1.25rem;
-                    border-radius: 16px;
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    backdrop-filter: blur(10px);
-                }
-                .welcome-feature-icon {
-                    font-size: 2rem;
-                    margin-bottom: 0.5rem;
-                }
-                .welcome-feature-name {
-                    color: white;
-                    font-weight: 600;
-                    font-size: 0.95rem;
-                }
-                .welcome-feature-desc {
-                    color: rgba(255, 255, 255, 0.8);
-                    font-size: 0.85rem;
-                    margin-top: 0.25rem;
-                }
-                .welcome-divider-container {
-                    margin-top: 3rem;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 0.75rem;
-                }
-                .welcome-divider-line {
-                    width: 40px;
-                    height: 2px;
-                    background: rgba(255, 255, 255, 0.3);
-                }
-                .welcome-divider-text {
-                    color: rgba(255, 255, 255, 0.9);
-                    font-size: 1rem;
-                    font-weight: 600;
-                    margin: 0;
-                }
-            </style>
             
             <div class="welcome-feature-card">
                 <h3 class="welcome-feature-title">✨ Premium Features</h3>
