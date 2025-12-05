@@ -30,9 +30,9 @@ CUSTOM_CSS = """
     header {visibility: hidden;}
     .stDeployButton {display: none;}
     
-    /* Animated gradient background */
+    /* Animated gradient background - softer colors */
     .main {
-        background: linear-gradient(-45deg, #1a1a2e, #16213e, #0f3460, #533483);
+        background: linear-gradient(-45deg, #2d3561, #3a4f7a, #4a5f8f, #5a6fa0);
         background-size: 400% 400%;
         animation: gradientShift 15s ease infinite;
         padding: 0;
@@ -520,6 +520,24 @@ CUSTOM_CSS = """
         50% { transform: scale(1.2) rotate(180deg); opacity: 1; }
     }
     
+    /* Force sidebar to be always visible and accessible */
+    [data-testid="collapsedControl"] {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: #667eea !important;
+        color: white !important;
+        border-radius: 0 8px 8px 0 !important;
+        padding: 1rem 0.5rem !important;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.3) !important;
+        z-index: 999999 !important;
+    }
+    
+    [data-testid="collapsedControl"]:hover {
+        background: #764ba2 !important;
+        transform: translateX(2px) !important;
+    }
+    
     /* Stunning sidebar - FORCE VISIBILITY */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, 
@@ -531,19 +549,21 @@ CUSTOM_CSS = """
         display: block !important;
         visibility: visible !important;
         opacity: 1 !important;
-    }
-    
-    /* Force sidebar button to be visible */
-    button[kind="header"] {
-        color: #fff !important;
-        background: rgba(102, 126, 234, 0.8) !important;
-        border-radius: 8px !important;
-        padding: 0.5rem !important;
+        min-width: 280px !important;
     }
     
     section[data-testid="stSidebar"] > div {
         display: block !important;
         visibility: visible !important;
+    }
+    
+    /* Make sidebar toggle arrow more visible */
+    button[kind="header"] {
+        background: #667eea !important;
+        color: white !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: bold !important;
     }
     
     section[data-testid="stSidebar"] * {
@@ -1135,108 +1155,110 @@ def main():
                 st.rerun()
     
     else:
-        # BRIGHT, HIGHLY VISIBLE welcome screen
+        # Clean, readable welcome screen
         st.markdown("""
         <div style="text-align: center; padding: 3rem 1rem;">
-            <div style="font-size: 6rem; margin-bottom: 1rem; filter: drop-shadow(0 0 20px #fff);">🤖</div>
-            <h1 style="color: #FFD700; font-size: 4rem; font-weight: 900; margin-bottom: 1rem; 
-                       text-shadow: 0 0 20px #FFD700, 0 0 40px #FFD700, 2px 2px 8px rgba(0,0,0,0.8);
-                       letter-spacing: 2px;">
-                AUTOBOT AI ULTRA
+            <div style="font-size: 5rem; margin-bottom: 1rem;">🤖</div>
+            <h1 style="color: #FFFFFF; font-size: 3rem; font-weight: 800; margin-bottom: 1rem; 
+                       text-shadow: 2px 2px 8px rgba(0,0,0,0.6);">
+                AutoBot AI Ultra
             </h1>
-            <p style="color: #00FF00; font-size: 1.8rem; margin-bottom: 2rem; font-weight: 700;
-                      text-shadow: 0 0 15px #00FF00, 0 0 30px #00FF00, 1px 1px 5px rgba(0,0,0,0.8);">
-                Create Intelligent Chatbots in Seconds ⚡
+            <p style="color: #E0E0E0; font-size: 1.3rem; margin-bottom: 2rem; font-weight: 500;
+                      text-shadow: 1px 1px 4px rgba(0,0,0,0.5);">
+                Create intelligent chatbots for any company website in seconds ⚡
             </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # BRIGHT Feature cards
+        # Feature cards with pleasant colors
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("""
-            <div style="background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%); 
-                        border-radius: 20px; padding: 2.5rem; border: 3px solid #FFD700;
-                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 0 30px rgba(255,215,0,0.6);">
-                <div style="font-size: 4rem; margin-bottom: 0.8rem; filter: drop-shadow(0 0 10px #fff);">🚀</div>
-                <h3 style="color: #FFFFFF; font-weight: 900; margin-bottom: 0.5rem; font-size: 1.5rem;
-                           text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">
-                    INSTANT CREATION
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                        border-radius: 18px; padding: 2rem; border: 2px solid rgba(255,255,255,0.3);
+                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
+                <div style="font-size: 3rem; margin-bottom: 0.8rem;">🚀</div>
+                <h3 style="color: #FFFFFF; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.3rem;
+                           text-shadow: 1px 1px 4px rgba(0,0,0,0.5);">
+                    Instant Creation
                 </h3>
-                <p style="color: #FFFF00; margin: 0; font-size: 1.1rem; font-weight: 700;
-                          text-shadow: 1px 1px 3px rgba(0,0,0,0.8);">
-                    Launch in Seconds
+                <p style="color: #E8E8E8; margin: 0; font-size: 1rem;
+                          text-shadow: 1px 1px 3px rgba(0,0,0,0.4);">
+                    Launch in seconds
                 </p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div style="background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%); 
-                        border-radius: 20px; padding: 2.5rem; border: 3px solid #FFD700;
-                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 0 30px rgba(255,215,0,0.6);">
-                <div style="font-size: 4rem; margin-bottom: 0.8rem; filter: drop-shadow(0 0 10px #fff);">📞</div>
-                <h3 style="color: #FFFFFF; font-weight: 900; margin-bottom: 0.5rem; font-size: 1.5rem;
-                           text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">
-                    CONTACT DETECTION
+            <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
+                        border-radius: 18px; padding: 2rem; border: 2px solid rgba(255,255,255,0.3);
+                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
+                <div style="font-size: 3rem; margin-bottom: 0.8rem;">📞</div>
+                <h3 style="color: #FFFFFF; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.3rem;
+                           text-shadow: 1px 1px 4px rgba(0,0,0,0.5);">
+                    Contact Detection
                 </h3>
-                <p style="color: #FFFF00; margin: 0; font-size: 1.1rem; font-weight: 700;
-                          text-shadow: 1px 1px 3px rgba(0,0,0,0.8);">
-                    Find Emails & Phones
+                <p style="color: #E8E8E8; margin: 0; font-size: 1rem;
+                          text-shadow: 1px 1px 3px rgba(0,0,0,0.4);">
+                    Find emails & phones
                 </p>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
             st.markdown("""
-            <div style="background: linear-gradient(135deg, #A8E6CF 0%, #3BB78F 100%); 
-                        border-radius: 20px; padding: 2.5rem; border: 3px solid #FFD700;
-                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 0 30px rgba(255,215,0,0.6);">
-                <div style="font-size: 4rem; margin-bottom: 0.8rem; filter: drop-shadow(0 0 10px #fff);">🔍</div>
-                <h3 style="color: #FFFFFF; font-weight: 900; margin-bottom: 0.5rem; font-size: 1.5rem;
-                           text-shadow: 2px 2px 4px rgba(0,0,0,0.8);">
-                    SMART ANALYSIS
+            <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
+                        border-radius: 18px; padding: 2rem; border: 2px solid rgba(255,255,255,0.3);
+                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
+                <div style="font-size: 3rem; margin-bottom: 0.8rem;">🔍</div>
+                <h3 style="color: #FFFFFF; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.3rem;
+                           text-shadow: 1px 1px 4px rgba(0,0,0,0.5);">
+                    Smart Analysis
                 </h3>
-                <p style="color: #FFFF00; margin: 0; font-size: 1.1rem; font-weight: 700;
-                          text-shadow: 1px 1px 3px rgba(0,0,0,0.8);">
-                    Auto Content Extraction
+                <p style="color: #E8E8E8; margin: 0; font-size: 1rem;
+                          text-shadow: 1px 1px 3px rgba(0,0,0,0.4);">
+                    Auto content extraction
                 </p>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("""
-            <div style="background: linear-gradient(135deg, #FFD93D 0%, #FFA62B 100%); 
-                        border-radius: 20px; padding: 2.5rem; border: 3px solid #FFD700;
-                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 0 30px rgba(255,215,0,0.6);">
-                <div style="font-size: 4rem; margin-bottom: 0.8rem; filter: drop-shadow(0 0 10px #fff);">⚡</div>
-                <h3 style="color: #000000; font-weight: 900; margin-bottom: 0.5rem; font-size: 1.5rem;
-                           text-shadow: 1px 1px 2px rgba(255,255,255,0.8);">
-                    LIGHTNING FAST
+            <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); 
+                        border-radius: 18px; padding: 2rem; border: 2px solid rgba(255,255,255,0.3);
+                        margin-bottom: 1.5rem; text-align: center; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
+                <div style="font-size: 3rem; margin-bottom: 0.8rem;">⚡</div>
+                <h3 style="color: #FFFFFF; font-weight: 700; margin-bottom: 0.5rem; font-size: 1.3rem;
+                           text-shadow: 1px 1px 4px rgba(0,0,0,0.5);">
+                    Lightning Fast
                 </h3>
-                <p style="color: #8B0000; margin: 0; font-size: 1.1rem; font-weight: 700;
-                          text-shadow: 1px 1px 2px rgba(255,255,255,0.8);">
-                    Instant Responses
+                <p style="color: #E8E8E8; margin: 0; font-size: 1rem;
+                          text-shadow: 1px 1px 3px rgba(0,0,0,0.4);">
+                    Instant responses
                 </p>
             </div>
             """, unsafe_allow_html=True)
         
-        # ULTRA BRIGHT call to action
+        # Simple, clear instructions
         st.markdown("<br>", unsafe_allow_html=True)
+        
+        st.success("👈 **Click the arrow (>) in the top-left corner to open the sidebar and create your chatbot**")
+        
         st.markdown("""
-        <div style="background: linear-gradient(90deg, #FF0000, #FF7F00, #FFFF00, #00FF00, #0000FF, #4B0082, #8B00FF);
-                    padding: 1.5rem; border-radius: 15px; text-align: center; border: 4px solid #FFD700;
-                    box-shadow: 0 0 40px rgba(255,215,0,0.8); margin: 2rem 0;">
-            <h2 style="color: #FFFFFF; font-size: 2rem; font-weight: 900; margin: 0;
-                       text-shadow: 0 0 20px #000, 2px 2px 4px rgba(0,0,0,0.9);
-                       animation: pulse 1.5s ease-in-out infinite;">
-                👈 OPEN THE SIDEBAR ON THE LEFT TO CREATE YOUR FIRST CHATBOT! 👈
-            </h2>
+        <div style="background: rgba(102, 126, 234, 0.2); padding: 1.5rem; border-radius: 12px; 
+                    border: 2px solid rgba(102, 126, 234, 0.5); margin-top: 2rem;">
+            <h3 style="color: #FFFFFF; margin-bottom: 1rem; text-shadow: 1px 1px 3px rgba(0,0,0,0.5);">
+                📌 Quick Start Guide:
+            </h3>
+            <ol style="color: #E0E0E0; text-align: left; line-height: 2; font-size: 1.05rem;">
+                <li>Look for the <strong style="color: #FFD700;">&gt;</strong> arrow icon in the top-left corner</li>
+                <li>Click it to open the purple sidebar</li>
+                <li>Fill in the company name and website URL</li>
+                <li>Click "🚀 Create Chatbot" and wait for analysis</li>
+                <li>Start chatting with your new AI assistant!</li>
+            </ol>
         </div>
         """, unsafe_allow_html=True)
-        
-        st.error("🚨 **CLICK THE '>' ARROW IN THE TOP-LEFT CORNER TO OPEN THE SIDEBAR!** 🚨")
-        st.warning("⚠️ **THE SIDEBAR CONTAINS THE 'ADD NEW COMPANY' FORM!** ⚠️")
-        st.info("ℹ️ **LOOK FOR THE PURPLE SIDEBAR ON THE LEFT SIDE OF YOUR SCREEN!** ℹ️")
 
 if __name__ == "__main__":
     main()
